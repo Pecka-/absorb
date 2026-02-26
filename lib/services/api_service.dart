@@ -7,6 +7,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 class ApiService {
   static String appVersion = '1.3.0'; // fallback; overwritten by initVersion()
 
+  /// Device country code (e.g. "us", "uk", "de") derived from the platform locale.
+  static String get _region {
+    final locale = PlatformDispatcher.instance.locale;
+    final code = (locale.countryCode ?? 'us').toLowerCase();
+    // Audnexus uses "uk" not "gb"
+    return code == 'gb' ? 'uk' : code;
+  }
+
   /// Call once at startup to read the real version from pubspec via package_info_plus.
   static Future<void> initVersion() async {
     try {
@@ -758,6 +766,7 @@ class ApiService {
       final params = <String, String>{
         'title': title,
         'provider': provider,
+        'region': _region,
       };
       if (author != null && author.isNotEmpty) {
         params['author'] = author;
@@ -810,7 +819,7 @@ class ApiService {
   static Future<Map<String, dynamic>?> getAudibleRating(String asin) async {
     try {
       final response = await http.get(
-        Uri.parse('https://api.audnex.us/books/$asin?update=1'),
+        Uri.parse('https://api.audnex.us/books/$asin?region=$_region&update=1'),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -843,7 +852,7 @@ class ApiService {
         Uri.parse(
           '$_cleanBaseUrl/api/search/covers?title=${Uri.encodeQueryComponent(title)}'
           '&author=${Uri.encodeQueryComponent(author ?? '')}'
-          '&provider=audible',
+          '&provider=audible&region=$_region',
         ),
         headers: _headers,
       ).timeout(const Duration(seconds: 15));
