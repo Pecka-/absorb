@@ -68,6 +68,9 @@ dependencies:
   # chromecast
   flutter_chrome_cast: ^1.2.6
 
+  # Log sharing
+  share_plus: ^10.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -11,7 +11,7 @@ import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/sleep_timer_service.dart';
 import '../services/user_account_service.dart';
-import '../services/update_checker_service.dart';
+import '../services/log_service.dart';
 import '../screens/login_screen.dart';
 import '../screens/app_shell.dart';
 import '../screens/admin_screen.dart';
@@ -39,6 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoContinueSeries = true;
   bool _hideEbookOnly = false;
   bool _showGoodreadsButton = false;
+  bool _loggingEnabled = false;
   bool _loaded = false;
   String _downloadLocationLabel = 'App Internal Storage (Default)';
   int _totalDownloadSizeBytes = 0;
@@ -65,6 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoSeries = await PlayerSettings.getAutoContinueSeries();
     final hideEbook = await PlayerSettings.getHideEbookOnly();
     final showGoodreads = await PlayerSettings.getShowGoodreadsButton();
+    final logging = await PlayerSettings.getLoggingEnabled();
 
     final dlLabel = await DownloadService().downloadLocationLabel;
     final dlSize = await DownloadService().totalDownloadSize;
@@ -84,6 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoContinueSeries = autoSeries;
       _hideEbookOnly = hideEbook;
       _showGoodreadsButton = showGoodreads;
+      _loggingEnabled = logging;
       _downloadLocationLabel = dlLabel;
       _totalDownloadSizeBytes = dlSize;
       _autoSleepSettings = autoSleep;
@@ -941,32 +944,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // ── Support & Info ──
+                // ── Issues & Support ──
+                _CollapsibleSection(
+                  icon: Icons.support_agent_rounded,
+                  title: 'Issues & Support',
+                  cs: cs,
+                  children: [
+                    ListTile(
+                      leading: Icon(Icons.bug_report_outlined, color: cs.onSurfaceVariant),
+                      title: const Text('Bugs & Feature Requests'),
+                      subtitle: Text('Open an issue on GitHub',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      trailing: Icon(Icons.open_in_new_rounded,
+                          size: 18, color: cs.onSurfaceVariant),
+                      onTap: () => launchUrl(
+                          Uri.parse('https://github.com/pounat/absorb/issues'),
+                          mode: LaunchMode.externalApplication),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    ListTile(
+                      leading: Icon(Icons.email_outlined, color: cs.primary),
+                      title: const Text('Contact'),
+                      subtitle: Text('Send device info via email',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () {
+                        LogService().contactEmail(
+                          serverVersion: auth.serverVersion,
+                        );
+                      },
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    SwitchListTile(
+                      title: const Text('Enable logging'),
+                      subtitle: Text(
+                        _loggingEnabled
+                            ? 'On — logs saved to file (restart to apply)'
+                            : 'Off — no logs captured',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      value: _loggingEnabled,
+                      onChanged: _loaded ? (v) {
+                        setState(() => _loggingEnabled = v);
+                        PlayerSettings.setLoggingEnabled(v);
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(v
+                              ? 'Logging enabled — restart app to start capturing'
+                              : 'Logging disabled — restart app to stop capturing'),
+                        ));
+                      } : null,
+                    ),
+                    if (_loggingEnabled && LogService().enabled) ...[
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      ListTile(
+                        leading: Icon(Icons.attach_file_rounded, color: cs.primary),
+                        title: const Text('Send logs'),
+                        subtitle: Text('Share log file as attachment',
+                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () async {
+                          try {
+                            await LogService().shareLogs(
+                              serverVersion: auth.serverVersion,
+                            );
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to share: $e')),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      ListTile(
+                        leading: Icon(Icons.delete_outline_rounded, color: cs.error),
+                        title: const Text('Clear logs'),
+                        onTap: () async {
+                          await LogService().clearLogs();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Logs cleared')),
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // ── Support the Dev ──
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Column(
                     children: [
-                      Card(
-                        color: cs.surfaceContainerHigh,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        clipBehavior: Clip.antiAlias,
-                        child: ListTile(
-                          leading: Icon(Icons.feedback_outlined,
-                              color: cs.onSurfaceVariant),
-                          title: const Text('Bugs & Feature Requests'),
-                          subtitle: Text('Open an issue on GitHub',
-                              style: tt.bodySmall
-                                  ?.copyWith(color: cs.onSurfaceVariant)),
-                          trailing: Icon(Icons.open_in_new_rounded,
-                              size: 18, color: cs.onSurfaceVariant),
-                          onTap: () => launchUrl(
-                              Uri.parse(
-                                  'https://github.com/pounat/absorb/issues'),
-                              mode: LaunchMode.externalApplication),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
                       Card(
                         color: cs.surfaceContainerHigh,
                         shape: RoundedRectangleBorder(
@@ -988,30 +1059,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      GestureDetector(
-                        onTap: () async {
-                          final update = await UpdateCheckerService.check(force: true);
-                          if (!mounted) return;
-                          if (update != null) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Absorb ${update.latestVersion} is available!'),
-                                action: SnackBarAction(
-                                  label: 'Download',
-                                  onPressed: () => launchUrl(Uri.parse(update.downloadUrl), mode: LaunchMode.externalApplication),
-                                ),
-                              ),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('You\'re on the latest version')),
-                            );
-                          }
-                        },
-                        child: Text('Check for updates',
-                          style: tt.bodySmall?.copyWith(color: cs.primary, fontWeight: FontWeight.w600)),
-                      ),
-                      const SizedBox(height: 8),
                       Text(
                         auth.serverVersion != null
                             ? 'Absorb v$_appVersion  ·  Server ${auth.serverVersion}'

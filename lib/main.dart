@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +18,7 @@ import 'services/sleep_timer_service.dart';
 import 'services/user_account_service.dart';
 import 'services/android_auto_service.dart';
 import 'services/chromecast_service.dart';
+import 'services/log_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/app_shell.dart';
 import 'widgets/absorb_wave_icon.dart';
@@ -46,6 +48,22 @@ void main() async {
     ApiService.deviceManufacturer = info.manufacturer;
     ApiService.deviceModel = info.model;
   } catch (_) {}
+
+  // Initialize log service (must be before other services so debugPrint is captured)
+  final loggingEnabled = await PlayerSettings.getLoggingEnabled();
+  await LogService().init(loggingEnabled);
+
+  // Capture Flutter framework errors (widget build failures, etc.)
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    LogService().log('[CRASH] FlutterError: ${details.exceptionAsString()}\n${details.stack}');
+  };
+
+  // Capture unhandled Dart exceptions (async errors, null dereferences, etc.)
+  PlatformDispatcher.instance.onError = (error, stack) {
+    LogService().log('[CRASH] Unhandled: $error\n$stack');
+    return true;
+  };
 
   // Initialize download notification service
   await DownloadNotificationService().init();
