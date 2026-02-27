@@ -293,7 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Padding(
                         padding: const EdgeInsets.only(top: 12),
                         child: SizedBox(
-                          height: 72,
+                          height: 92,
                           child: ListView.separated(
                             scrollDirection: Axis.horizontal,
                             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -443,6 +443,15 @@ class _ContinueListeningCard extends StatefulWidget {
 class _ContinueListeningCardState extends State<_ContinueListeningCard> {
   bool _isLoading = false;
 
+  static String _fmtTime(double s) {
+    if (s <= 0) return '0:00';
+    final h = (s / 3600).floor();
+    final m = ((s % 3600) / 60).floor();
+    final sec = (s % 60).floor();
+    if (h > 0) return '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
+    return '$m:${sec.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -472,6 +481,14 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
     final progress = episodeId != null
         ? lib.getEpisodeProgress(itemId, episodeId)
         : lib.getProgress(itemId);
+    final progressData = episodeId != null
+        ? lib.getEpisodeProgressData(itemId, episodeId)
+        : lib.getProgressData(itemId);
+    final currentTime = (progressData?['currentTime'] as num?)?.toDouble() ?? 0;
+    final totalDuration = (progressData?['duration'] as num?)?.toDouble() ??
+        (recentEpisode != null
+            ? (recentEpisode['duration'] as num?)?.toDouble() ?? 0
+            : (media['duration'] as num?)?.toDouble() ?? 0);
     final isCurrentItem = player.currentItemId == itemId;
 
     return GestureDetector(
@@ -500,7 +517,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: SizedBox(
-                width: 48, height: 48,
+                width: 52, height: 52,
                 child: coverUrl != null
                     ? coverUrl.startsWith('/')
                         ? Image.file(File(coverUrl), fit: BoxFit.cover,
@@ -531,6 +548,24 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                     Text(author, maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: tt.labelSmall?.copyWith(
                         color: cs.onSurfaceVariant, fontSize: 11)),
+                  const SizedBox(height: 4),
+                  // Percentage + listened time
+                  Text.rich(
+                    TextSpan(children: [
+                      TextSpan(text: '${(progress * 100).round()}%',
+                        style: tt.labelSmall?.copyWith(
+                          fontSize: 10, fontWeight: FontWeight.w600,
+                          color: cs.primary)),
+                      if (totalDuration > 0) ...[
+                        TextSpan(text: '  ·  ',
+                          style: tt.labelSmall?.copyWith(
+                            fontSize: 10, color: cs.onSurfaceVariant.withValues(alpha: 0.5))),
+                        TextSpan(text: '${_fmtTime(currentTime)} / ${_fmtTime(totalDuration)}',
+                          style: tt.labelSmall?.copyWith(
+                            fontSize: 10, color: cs.onSurfaceVariant)),
+                      ],
+                    ]),
+                  ),
                   const SizedBox(height: 4),
                   // Thin progress bar
                   ClipRRect(

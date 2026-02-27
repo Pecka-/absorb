@@ -250,7 +250,7 @@ class _PodcastSearchSheetState extends State<_PodcastSearchSheet> {
       ),
       child: DraggableScrollableSheet(
         initialChildSize: 0.85,
-        minChildSize: 0.5,
+        minChildSize: 0.05,
         maxChildSize: 0.95,
         expand: false,
         builder: (ctx, sc) {

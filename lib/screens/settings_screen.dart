@@ -112,7 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context, isScrollControlled: true, useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
-        expand: false, initialChildSize: 0.75, maxChildSize: 0.95,
+        expand: false, initialChildSize: 0.75, minChildSize: 0.05, maxChildSize: 0.95,
         builder: (_, sc) => Container(
           decoration: BoxDecoration(
             color: cs.surface,
@@ -1502,7 +1502,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       isScrollControlled: true,
       builder: (ctx) => DraggableScrollableSheet(
         initialChildSize: 0.5,
-        minChildSize: 0.3,
+        minChildSize: 0.05,
         maxChildSize: 0.85,
         expand: false,
         builder: (ctx, scrollController) => Container(

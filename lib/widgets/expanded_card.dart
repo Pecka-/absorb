@@ -919,7 +919,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
       context: context, isScrollControlled: true, useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
-        expand: false, initialChildSize: 0.6, maxChildSize: 0.9,
+        expand: false, initialChildSize: 0.6, minChildSize: 0.05, maxChildSize: 0.9,
         builder: (_, sc) => Container(
           decoration: BoxDecoration(
             color: Theme.of(context).bottomSheetTheme.backgroundColor,
@@ -972,7 +972,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
       context: context, isScrollControlled: true, useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
-        expand: false, initialChildSize: 0.6, maxChildSize: 0.9,
+        expand: false, initialChildSize: 0.6, minChildSize: 0.05, maxChildSize: 0.9,
         builder: (_, sc) => Container(
           decoration: BoxDecoration(
             color: Theme.of(context).bottomSheetTheme.backgroundColor,

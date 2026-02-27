@@ -16,7 +16,7 @@ import '../services/download_service.dart';
 import '../services/progress_sync_service.dart';
 import '../services/metadata_override_service.dart';
 import '../screens/app_shell.dart';
-import '../screens/library_screen.dart';
+import 'series_books_sheet.dart';
 import 'absorbing_shared.dart';
 import 'metadata_lookup_sheet.dart';
 
@@ -27,7 +27,7 @@ void showBookDetailSheet(BuildContext context, String itemId) {
     context: context, isScrollControlled: true, useSafeArea: true,
     backgroundColor: Colors.transparent,
     builder: (ctx) => DraggableScrollableSheet(
-      expand: false, initialChildSize: 0.85, minChildSize: 0.5, maxChildSize: 0.95,
+      expand: false, initialChildSize: 0.85, minChildSize: 0.05, maxChildSize: 0.95,
       builder: (ctx, sc) => _BookDetailSheetContent(itemId: itemId, scrollController: sc),
     ),
   );
@@ -704,7 +704,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
       builder: (_) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.85,
-        minChildSize: 0.5,
+        minChildSize: 0.05,
         maxChildSize: 0.95,
         builder: (ctx, sc) => MetadataLookupSheet(
           itemId: widget.itemId,
