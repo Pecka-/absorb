@@ -141,6 +141,8 @@ class PlayerSettings {
   /// For minified responses (library list), duration == 0 means no audio files.
   /// For full responses (detail sheet), we also check ebookFile + audioFiles.
   static bool isEbookOnly(Map<String, dynamic> item) {
+    // Podcasts are never eBook-only (minified podcasts lack duration/audioFiles)
+    if ((item['mediaType'] as String?) == 'podcast') return false;
     final media = item['media'] as Map<String, dynamic>? ?? {};
     final duration = (media['duration'] as num?)?.toDouble() ?? 0;
     if (duration > 0) return false; // Has audio content
