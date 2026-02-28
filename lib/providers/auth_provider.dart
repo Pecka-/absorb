@@ -110,8 +110,6 @@ class AuthProvider extends ChangeNotifier {
     Map<String, String> customHeaders = const {},
   }) async {
     _errorMessage = null;
-    _isLoading = true;
-    notifyListeners();
 
     // Normalize server URL
     String url = serverUrl.trim();
@@ -126,8 +124,6 @@ class AuthProvider extends ChangeNotifier {
     final reachable = await ApiService.pingServer(url, customHeaders: customHeaders);
     if (!reachable) {
       _errorMessage = 'Cannot reach server at $url';
-      _isLoading = false;
-      notifyListeners();
       return false;
     }
 
@@ -141,8 +137,6 @@ class AuthProvider extends ChangeNotifier {
 
     if (result == null) {
       _errorMessage = 'Invalid username or password';
-      _isLoading = false;
-      notifyListeners();
       return false;
     }
 
@@ -150,8 +144,6 @@ class AuthProvider extends ChangeNotifier {
     final user = result['user'] as Map<String, dynamic>?;
     if (user == null) {
       _errorMessage = 'Unexpected server response';
-      _isLoading = false;
-      notifyListeners();
       return false;
     }
 
