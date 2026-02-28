@@ -52,7 +52,12 @@ class BookCard extends StatelessWidget {
     if (itemId == null) return;
     final lib = context.read<LibraryProvider>();
     if (lib.isPodcastLibrary) {
-      EpisodeListSheet.show(context, item);
+      final episode = item['recentEpisode'] as Map<String, dynamic>?;
+      if (episode != null) {
+        EpisodeDetailSheet.show(context, item, episode);
+      } else {
+        EpisodeListSheet.show(context, item);
+      }
     } else {
       showBookDetailSheet(context, itemId);
     }

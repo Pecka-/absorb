@@ -487,7 +487,13 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
 
   String get _episodeTitle => widget.episode['title'] as String? ?? 'Episode';
   String get _episodeId => widget.episode['id'] as String? ?? '';
-  double get _duration => (widget.episode['duration'] as num?)?.toDouble() ?? 0;
+  double get _duration {
+    final d = (widget.episode['duration'] as num?)?.toDouble() ?? 0;
+    if (d > 0) return d;
+    // recentEpisode from ABS personalized sections often omits top-level duration
+    final af = widget.episode['audioFile'] as Map<String, dynamic>?;
+    return (af?['duration'] as num?)?.toDouble() ?? 0;
+  }
   int get _publishedAt => (widget.episode['publishedAt'] as num?)?.toInt() ?? 0;
   String? get _episodeNumber => widget.episode['episode'] as String?;
   String? get _season => widget.episode['season'] as String?;
