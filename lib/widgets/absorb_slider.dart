@@ -283,8 +283,8 @@ class AbsorbProgressPainter extends CustomPainter {
     }
 
     // Thumb handle (tall rounded rect — style 4)
-    final thumbWidth = isDragging ? 7.0 : 5.0;
-    final thumbHeight = isDragging ? 32.0 : 26.0;
+    final thumbWidth = isDragging ? 10.0 : 5.0;
+    final thumbHeight = isDragging ? 34.0 : 26.0;
     final thumbRect = RRect.fromRectAndRadius(
       Rect.fromCenter(
         center: Offset(progressX, centerY),
@@ -294,12 +294,20 @@ class AbsorbProgressPainter extends CustomPainter {
       Radius.circular(thumbWidth / 2),
     );
 
+    // Shadow
     canvas.drawRRect(
       thumbRect.shift(const Offset(0, 1)),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.3)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
     );
+    // White border when dragging for contrast
+    if (isDragging) {
+      canvas.drawRRect(
+        thumbRect.inflate(1.5),
+        Paint()..color = Colors.white,
+      );
+    }
     canvas.drawRRect(thumbRect, Paint()..color = accent);
   }
 

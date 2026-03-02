@@ -483,6 +483,23 @@ class ChapterPillPainter extends CustomPainter {
           ..strokeWidth = 1.5
           ..strokeCap = StrokeCap.round,
       );
+
+      // Thumb circle when dragging
+      if (isDragging) {
+        final center = Offset(lineX, h / 2);
+        // Shadow
+        canvas.drawCircle(
+          center + const Offset(0, 1),
+          7,
+          Paint()
+            ..color = Colors.black.withValues(alpha: 0.3)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+        );
+        // White border
+        canvas.drawCircle(center, 7, Paint()..color = Colors.white);
+        // Accent fill
+        canvas.drawCircle(center, 5.5, Paint()..color = accent);
+      }
     }
   }
 
