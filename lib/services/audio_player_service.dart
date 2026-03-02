@@ -214,13 +214,20 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     _player.playbackEventStream.map(_transformEvent).pipe(playbackState);
   }
 
+  // OnePlus/Oppo/Realme (ColorOS) renders notification media buttons in
+  // reverse order.  Flip the controls so they end up visually correct.
+  static bool get _reversedNotificationControls {
+    final m = ApiService.deviceManufacturer.toLowerCase();
+    return m == 'oneplus' || m == 'oppo' || m == 'realme';
+  }
+
   PlaybackState _transformEvent(PlaybackEvent event) {
+    final playPause = _player.playing ? MediaControl.pause : MediaControl.play;
+    final controls = _reversedNotificationControls
+        ? [MediaControl.fastForward, playPause, MediaControl.rewind]
+        : [MediaControl.rewind, playPause, MediaControl.fastForward];
     return PlaybackState(
-      controls: [
-        MediaControl.rewind,
-        if (_player.playing) MediaControl.pause else MediaControl.play,
-        MediaControl.fastForward,
-      ],
+      controls: controls,
       systemActions: const {
         MediaAction.seek,
         MediaAction.seekForward,
