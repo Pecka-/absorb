@@ -122,7 +122,14 @@ class _ExpandedCardState extends State<ExpandedCard> {
   bool get _isPodcastEpisode => _isActive && widget.player.currentEpisodeId != null;
 
   Map<String, dynamic>? get _recentEpisode => _item['recentEpisode'] as Map<String, dynamic>?;
-  String? get _episodeId => _recentEpisode?['id'] as String?;
+  // Episode ID: prefer recentEpisode, fall back to compound absorbing key
+  String? get _episodeId {
+    final re = _recentEpisode;
+    if (re != null) return re['id'] as String?;
+    final absKey = _item['_absorbingKey'] as String?;
+    if (absKey != null && absKey.length > 36) return absKey.substring(37);
+    return null;
+  }
   double get _effectiveDuration {
     if (!_isActive && _recentEpisode != null) {
       final epDur = (_recentEpisode!['duration'] as num?)?.toDouble();
@@ -722,7 +729,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                       // ── Chapter scrubber ──
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode!['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
+                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
                       ),
                       // ── Controls + buttons ──
                       Expanded(

@@ -82,7 +82,10 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
         final playingKey = _player.currentEpisodeId != null
             ? '${_player.currentItemId!}-${_player.currentEpisodeId!}'
             : _player.currentItemId!;
-        lib.unblockFromAbsorbing(playingKey);
+        lib.unblockFromAbsorbing(playingKey,
+          episodeTitle: _player.currentEpisodeTitle,
+          episodeDuration: _player.currentEpisodeId != null ? _player.totalDuration : null,
+        );
         // Persist so this item stays at front even if the app is killed
         _lastFinishedId = playingKey;
         ScopedPrefs.setString('absorbing_last_finished', playingKey);
@@ -272,8 +275,9 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
     // absorbingBookIds now contains compound keys for podcast episodes.
     final selectedLibraryId = lib.selectedLibraryId;
     final items = <Map<String, dynamic>>[];
+    final skippedKeys = <String, String>{};
     for (final key in lib.absorbingBookIds) {
-      if (removes.contains(key)) continue;
+      if (removes.contains(key)) { skippedKeys[key] = 'removed'; continue; }
       // Prefer fresh data from current library's sections
       final fromSection = sectionLookup[key];
       if (fromSection != null) {
@@ -286,10 +290,13 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
         final itemLibId = cached['libraryId'] as String?;
         if (selectedLibraryId == null || itemLibId == null || itemLibId == selectedLibraryId) {
           items.add(cached);
+        } else {
+          skippedKeys[key] = 'wrong library (item=$itemLibId, selected=$selectedLibraryId)';
         }
+      } else {
+        skippedKeys[key] = 'not in section or cache';
       }
     }
-
     // If the currently playing/casting item isn't in the list, add it at the front.
     // For podcast episodes, match by compound key.
     // Skip if the playing item belongs to a different library type.

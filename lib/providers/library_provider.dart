@@ -197,14 +197,22 @@ class LibraryProvider extends ChangeNotifier {
   Map<String, dynamic>? getProgressData(String? itemId) {
     if (itemId == null) return null;
     if (_resetItems.contains(itemId)) return null;
-    return _progressMap[itemId];
+    final data = _progressMap[itemId];
+    if (_locallyFinishedItems.contains(itemId)) {
+      return {...?data, 'isFinished': true};
+    }
+    return data;
   }
 
   /// Get raw progress data for a podcast episode.
   Map<String, dynamic>? getEpisodeProgressData(String itemId, String episodeId) {
     final key = '$itemId-$episodeId';
     if (_resetItems.contains(key)) return null;
-    return _progressMap[key];
+    final data = _progressMap[key];
+    if (_locallyFinishedItems.contains(key)) {
+      return {...?data, 'isFinished': true};
+    }
+    return data;
   }
 
   /// Count of books marked as finished in the progress map.
@@ -251,6 +259,7 @@ class LibraryProvider extends ChangeNotifier {
   void resetProgressFor(String itemId) {
     _progressMap.remove(itemId);
     _localProgressOverrides.remove(itemId);
+    _locallyFinishedItems.remove(itemId);
     _resetItems.add(itemId);
     notifyListeners();
   }
@@ -592,6 +601,12 @@ class LibraryProvider extends ChangeNotifier {
       if (me != null) {
         final progressList = me['mediaProgress'] as List<dynamic>?;
         if (progressList != null) {
+          // Preserve locally-set isFinished flags that the server may not
+          // have processed yet (e.g. episode just finished, server lags).
+          final localFinished = <String, Map<String, dynamic>>{};
+          if (_lastFinishedItemId != null && _progressMap.containsKey(_lastFinishedItemId!)) {
+            localFinished[_lastFinishedItemId!] = _progressMap[_lastFinishedItemId!]!;
+          }
           _progressMap = {};
           for (final mp in progressList) {
             if (mp is Map<String, dynamic>) {
@@ -601,6 +616,14 @@ class LibraryProvider extends ChangeNotifier {
                 final key = episodeId != null ? '$itemId-$episodeId' : itemId;
                 _progressMap[key] = mp;
               }
+            }
+          }
+          // Re-apply local finished state if the server hasn't caught up
+          for (final entry in localFinished.entries) {
+            final serverEntry = _progressMap[entry.key];
+            final serverHasFinished = serverEntry?['isFinished'] == true;
+            if (serverEntry == null || !serverHasFinished) {
+              _progressMap[entry.key] = {...?serverEntry, ...entry.value};
             }
           }
         }
@@ -677,12 +700,10 @@ class LibraryProvider extends ChangeNotifier {
   String? getCoverUrl(String? itemId, {int width = 400}) {
     if (itemId == null) return null;
 
-    // For podcast episodes stored under composite keys like "showId-ep_xxx",
+    // For podcast episodes stored under composite keys ("showUUID-episodeId"),
     // extract the show ID for API calls so the server returns the show cover.
-    final isCompositeKey = itemId.contains('-ep_');
-    final apiItemId = isCompositeKey
-        ? itemId.substring(0, itemId.indexOf('-ep_'))
-        : itemId;
+    final isCompositeKey = itemId.length > 36;
+    final apiItemId = isCompositeKey ? itemId.substring(0, 36) : itemId;
 
     // Try API first when online
     if (_api != null && !isOffline) {
@@ -725,6 +746,8 @@ class LibraryProvider extends ChangeNotifier {
   Map<String, Map<String, dynamic>> _absorbingItemCache = {};
   // Track last finished item so we can insert next-in-series after it
   String? _lastFinishedItemId;
+  // Robust local finished state — survives _refreshProgress rebuilds
+  final Set<String> _locallyFinishedItems = {};
 
   Set<String> get manualAbsorbAdds => _manualAbsorbAdds;
   Set<String> get manualAbsorbRemoves => _manualAbsorbRemoves;
@@ -856,8 +879,8 @@ class LibraryProvider extends ChangeNotifier {
       // Collect show IDs we know about (from sections or cache)
       final knownShowIds = <String>{};
       for (final key in _absorbingBookIds) {
-        if (key.contains('-')) {
-          knownShowIds.add(key.split('-').first);
+        if (key.length > 36) {
+          knownShowIds.add(key.substring(0, 36));
         }
       }
       // Also add show entities from sections
@@ -865,15 +888,14 @@ class LibraryProvider extends ChangeNotifier {
 
       for (final entry in _progressMap.entries) {
         final key = entry.key;
-        if (!key.contains('-')) continue; // not an episode entry
+        if (key.length <= 36) continue; // not an episode entry (plain UUID)
         final mp = entry.value;
         if (mp['isFinished'] == true) continue; // skip finished episodes
         final progress = (mp['progress'] as num?)?.toDouble() ?? 0;
         if (progress <= 0) continue; // never actually played
 
-        final parts = key.split('-');
-        final showId = parts[0];
-        final episodeId = parts.sublist(1).join('-');
+        final showId = key.substring(0, 36);
+        final episodeId = key.substring(37);
 
         if (_absorbingBookIds.contains(key)) continue; // already have it
         if (_manualAbsorbRemoves.contains(key)) continue; // user removed it
@@ -916,7 +938,7 @@ class LibraryProvider extends ChangeNotifier {
       if (allowedKeys.contains(key)) continue; // still in a live section
       if (_manualAbsorbAdds.contains(key)) continue; // user explicitly added it
       // Keep if there is any recorded progress
-      final hasProgress = key.contains('-')
+      final hasProgress = key.length > 36
           ? _progressMap.containsKey(key)
           : _progressMap.keys.any((k) => k == key || k.startsWith('$key-'));
       if (!hasProgress) toRemove.add(key);
@@ -931,7 +953,7 @@ class LibraryProvider extends ChangeNotifier {
     final migrateRemove = <String>[];
     final migrateAdd = <String, Map<String, dynamic>>{};
     for (final key in _absorbingBookIds) {
-      if (key.contains('-')) continue; // already compound
+      if (key.length > 36) continue; // already compound
       final cached = _absorbingItemCache[key];
       if (cached == null) continue;
       final re = cached['recentEpisode'] as Map<String, dynamic>?;
@@ -1010,25 +1032,59 @@ class LibraryProvider extends ChangeNotifier {
   /// Re-allow an item that was previously removed, so it can reappear in Absorbing.
   /// Called when the user explicitly plays an item that they had removed.
   /// [key] can be a plain itemId (books) or compound "itemId-episodeId" (podcasts).
-  void unblockFromAbsorbing(String key) {
+  void unblockFromAbsorbing(String key, {String? episodeTitle, double? episodeDuration}) {
+    // Clear stale finished state so the overlay doesn't persist when replaying
+    _localProgressOverrides.remove(key);
+    _locallyFinishedItems.remove(key);
+    final pm = _progressMap[key];
+    if (pm != null && pm['isFinished'] == true) {
+      _progressMap[key] = {...pm, 'isFinished': false};
+    }
     bool changed = _manualAbsorbRemoves.remove(key);
+    final isCompound = key.length > 36;
     if (!_absorbingBookIds.contains(key)) {
       _absorbingIdsAdd(key);
       changed = true;
       // Populate the cache from current sections if available
-      final isCompound = key.contains('-');
-      final showId = isCompound ? key.split('-').first : key;
+      final showId = isCompound ? key.substring(0, 36) : key;
       for (final section in _personalizedSections) {
         for (final e in (section['entities'] as List<dynamic>? ?? [])) {
           if (e is Map<String, dynamic> && (e['id'] as String?) == showId) {
             if (isCompound) {
-              _absorbingItemCache[key] = {...e, '_absorbingKey': key};
+              final episodeId = key.substring(37);
+              final cached = Map<String, dynamic>.from(e);
+              cached['_absorbingKey'] = key;
+              // Ensure recentEpisode points to the correct episode
+              cached['recentEpisode'] = {
+                ...?(cached['recentEpisode'] as Map<String, dynamic>?),
+                'id': episodeId,
+                if (episodeTitle != null) 'title': episodeTitle,
+                if (episodeDuration != null && episodeDuration > 0) 'duration': episodeDuration,
+              };
+              _absorbingItemCache[key] = cached;
             } else {
               _absorbingItemCache[key] = e;
             }
             break;
           }
         }
+      }
+    }
+    // Ensure existing cache entry has _absorbingKey and correct recentEpisode
+    if (isCompound && _absorbingItemCache.containsKey(key)) {
+      final cached = _absorbingItemCache[key]!;
+      if (cached['_absorbingKey'] == null) cached['_absorbingKey'] = key;
+      final episodeId = key.substring(37);
+      final re = cached['recentEpisode'] as Map<String, dynamic>?;
+      if (re == null || (re['id'] as String?) != episodeId) {
+        cached['recentEpisode'] = {
+          ...?re,
+          'id': episodeId,
+          if (episodeTitle != null) 'title': episodeTitle,
+          if (episodeDuration != null && episodeDuration > 0) 'duration': episodeDuration,
+        };
+      } else if (episodeTitle != null && re['title'] == null) {
+        cached['recentEpisode'] = {...re, 'title': episodeTitle};
       }
     }
     if (changed) _saveManualAbsorbing();
@@ -1047,6 +1103,7 @@ class LibraryProvider extends ChangeNotifier {
 
   /// Mark an item as finished locally so the overlay appears immediately,
   /// before the next server refresh confirms isFinished.
+  /// [itemId] can be a plain book ID or a compound "showId-episodeId" key.
   /// If [skipRefresh] is true, the caller handles refreshing (e.g.
   /// book_detail_sheet calls refresh() after api.markFinished).
   void markFinishedLocally(String itemId, {bool skipRefresh = false}) {
@@ -1055,16 +1112,92 @@ class LibraryProvider extends ChangeNotifier {
     _progressMap[itemId] = {...existing, 'isFinished': true};
     _localProgressOverrides[itemId] = 1.0;
     _lastFinishedItemId = itemId;
-    // Move finished book to front so the series continuation lands at index 1
+    _locallyFinishedItems.add(itemId);
+    // Move finished item to front so the next-in-series/episode lands at index 1
     _absorbingBookIds.remove(itemId);
     _absorbingBookIds.insert(0, itemId);
+    // Ensure cache entry has _absorbingKey so the card can extract the episode ID
+    if (itemId.length > 36) {
+      final cached = _absorbingItemCache[itemId];
+      if (cached != null && cached['_absorbingKey'] == null) {
+        cached['_absorbingKey'] = itemId;
+      }
+    }
     notifyListeners();
+
+    // For podcast episodes, fetch the next episode and THEN refresh.
+    // This avoids a race where the refresh prunes the newly added episode.
+    final isCompound = itemId.length > 36;
+    if (isCompound && !skipRefresh && _api != null && !isOffline) {
+      // UUIDs are always 36 chars; compound key = "showUUID-episodeId"
+      final showId = itemId.substring(0, 36);
+      final episodeId = itemId.substring(37);
+      _addNextPodcastEpisode(showId, episodeId, itemId).then((_) {
+        if (_selectedLibraryId != null && !isOffline) {
+          loadPersonalizedView(force: true);
+        }
+      });
+      return; // skip the default refresh below — handled above
+    }
+
     if (!skipRefresh && _api != null && _selectedLibraryId != null && !isOffline) {
       // Brief delay so the server has time to populate continue-series
       Future.delayed(const Duration(milliseconds: 500), () {
         loadPersonalizedView(force: true);
       });
     }
+  }
+
+  /// Fetch the podcast show's episode list and insert the next episode
+  /// (chronologically after the finished one) into the absorbing list.
+  Future<void> _addNextPodcastEpisode(String showId, String finishedEpisodeId, String finishedKey) async {
+    // Brief delay so the server has time to register the finished state
+    await Future.delayed(const Duration(milliseconds: 500));
+    try {
+      final fullItem = await _api!.getLibraryItem(showId);
+      if (fullItem == null) return;
+      final media = fullItem['media'] as Map<String, dynamic>? ?? {};
+      final episodes = List<dynamic>.from(media['episodes'] as List<dynamic>? ?? []);
+      if (episodes.isEmpty) return;
+
+      // Sort oldest-first (ascending publishedAt) so "next" = index + 1
+      episodes.sort((a, b) {
+        final aTime = (a['publishedAt'] as num?)?.toInt() ?? 0;
+        final bTime = (b['publishedAt'] as num?)?.toInt() ?? 0;
+        return aTime.compareTo(bTime);
+      });
+
+      final currentIdx = episodes.indexWhere(
+        (e) => e is Map<String, dynamic> && (e['id'] as String?) == finishedEpisodeId,
+      );
+      if (currentIdx < 0 || currentIdx >= episodes.length - 1) return;
+
+      final nextEp = episodes[currentIdx + 1] as Map<String, dynamic>;
+      final nextEpId = nextEp['id'] as String?;
+      if (nextEpId == null) return;
+
+      final nextKey = '$showId-$nextEpId';
+      if (_manualAbsorbRemoves.contains(nextKey)) return;
+      if (_progressMap[nextKey]?['isFinished'] == true) return;
+
+      // Build a synthetic cache entry from the show data
+      final showData = _absorbingItemCache.values
+          .cast<Map<String, dynamic>?>()
+          .firstWhere(
+            (c) => c != null && (c['id'] as String?) == showId,
+            orElse: () => null,
+          ) ?? fullItem;
+      final syntheticEntry = Map<String, dynamic>.from(showData);
+      syntheticEntry['recentEpisode'] = Map<String, dynamic>.from(nextEp);
+      syntheticEntry['_absorbingKey'] = nextKey;
+
+      // Mark as manually added so pruning won't remove it (no progress yet)
+      _manualAbsorbAdds.add(nextKey);
+      _absorbingIdsAdd(nextKey, afterKey: finishedKey);
+      _absorbingItemCache[nextKey] = syntheticEntry;
+      await _saveManualAbsorbing();
+      notifyListeners();
+    } catch (_) {}
   }
 
   /// Check if a book/episode is on the absorbing page (persisted local list, not removed).

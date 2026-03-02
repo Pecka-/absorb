@@ -542,9 +542,10 @@ class ChromecastService extends ChangeNotifier {
       );
     }
 
-    // Notify LibraryProvider (episodes don't mark the whole show as finished)
-    if (itemId != null && episodeId == null) {
-      _onBookFinishedCallback?.call(itemId);
+    // Notify LibraryProvider so it can update isFinished locally
+    if (itemId != null) {
+      final key = episodeId != null ? '$itemId-$episodeId' : itemId;
+      _onBookFinishedCallback?.call(key);
     }
 
     // Clear casting state but keep connection

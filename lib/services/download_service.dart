@@ -265,10 +265,10 @@ class DownloadService extends ChangeNotifier {
       String? coverUrl = info.coverUrl;
       String? localCoverPath = info.localCoverPath;
 
-      // For podcast episodes, the itemId is a composite "showId-episodeId".
-      // Extract the library item ID for API calls.
-      final apiItemId = info.itemId.contains('-ep_')
-          ? info.itemId.substring(0, info.itemId.indexOf('-ep_'))
+      // For podcast episodes, the itemId is a composite "showUUID-episodeId".
+      // Extract the library item ID (first 36 chars = UUID) for API calls.
+      final apiItemId = info.itemId.length > 36
+          ? info.itemId.substring(0, 36)
           : info.itemId;
 
       // Enrich missing title/author from server

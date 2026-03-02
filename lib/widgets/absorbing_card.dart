@@ -74,7 +74,15 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
 
   // For inactive podcast show cards: recentEpisode is embedded in the continue-listening entity
   Map<String, dynamic>? get _recentEpisode => widget.item['recentEpisode'] as Map<String, dynamic>?;
-  String? get _episodeId => _recentEpisode?['id'] as String?;
+  // Episode ID: prefer recentEpisode, fall back to compound absorbing key
+  String? get _episodeId {
+    final re = _recentEpisode;
+    if (re != null) return re['id'] as String?;
+    // Compound absorbing keys are "showUUID-episodeId" (>36 chars)
+    final absKey = widget.item['_absorbingKey'] as String?;
+    if (absKey != null && absKey.length > 36) return absKey.substring(37);
+    return null;
+  }
   // Use episode duration for inactive podcast show cards (show duration is aggregate/incorrect)
   double get _effectiveDuration {
     if (!_isActive && _recentEpisode != null) {
@@ -637,7 +645,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                 // ── Chapter pill-scrubber (same width as book bar) ──
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode!['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
+                  child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
                 ),
                 // ── Controls + buttons ──
                 Expanded(
@@ -824,14 +832,23 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     final api = auth.apiService;
     if (api == null) { setState(() => _isStarting = false); return; }
     final lib = context.read<LibraryProvider>();
-    await api.resetProgress(_itemId, _duration);
-    lib.resetProgressFor(_itemId);
+    final progressKey = _episodeId != null ? '$_itemId-$_episodeId' : _itemId;
+    if (_episodeId != null) {
+      await api.updateEpisodeProgress(_itemId, _episodeId!,
+          currentTime: 0, duration: _effectiveDuration, isFinished: false);
+    } else {
+      await api.resetProgress(_itemId, _duration);
+    }
+    lib.resetProgressFor(progressKey);
     // Clear the locally saved position so playItem() doesn't override startTime
-    // back to the end of the book (where it was saved on completion)
-    await ProgressSyncService().deleteLocal(_itemId);
+    // back to the end (where it was saved on completion)
+    await ProgressSyncService().deleteLocal(progressKey);
     await widget.player.playItem(
       api: api, itemId: _itemId, title: _title, author: _author,
-      coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
+      coverUrl: _coverUrl, totalDuration: _episodeId != null ? _effectiveDuration : _duration,
+      chapters: _chapters,
+      episodeId: _episodeId,
+      episodeTitle: _recentEpisode?['title'] as String?,
     );
     if (mounted) setState(() => _isStarting = false);
   }

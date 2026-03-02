@@ -1437,9 +1437,9 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     // Notify LibraryProvider before clearing state so it can update isFinished locally.
-    // Episodes don't mark the whole show as finished.
-    if (itemId != null && episodeId == null) {
-      _onBookFinishedCallback?.call(itemId);
+    if (itemId != null) {
+      final key = episodeId != null ? '$itemId-$episodeId' : itemId;
+      _onBookFinishedCallback?.call(key);
     }
 
     // Clear state (player already stopped at top of method)
