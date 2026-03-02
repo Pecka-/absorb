@@ -20,9 +20,9 @@ class AuthorCard extends StatelessWidget {
     final authorId = author['id'] as String? ?? '';
 
     String? imageUrl;
-    if (authorId.isNotEmpty && auth.serverUrl != null && auth.token != null) {
-      imageUrl =
-          '${auth.serverUrl}/api/authors/$authorId/image?width=200&token=${auth.token}';
+    if (authorId.isNotEmpty && auth.apiService != null) {
+      final ts = (author['updatedAt'] as num?)?.toInt();
+      imageUrl = auth.apiService!.getAuthorImageUrl(authorId, updatedAt: ts);
     }
 
     final headers = lib.mediaHeaders;

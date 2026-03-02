@@ -27,6 +27,9 @@ class LibraryProvider extends ChangeNotifier {
   bool _isLoadingSeries = false;
   String? _errorMessage;
 
+  // Cache of item updatedAt timestamps for cover cache-busting
+  final Map<String, int> _itemUpdatedAt = {};
+
   // Fetch deduplication for loadPersonalizedView
   Future<void>? _personalizedInFlight;
   DateTime? _lastPersonalizedFetchAt;
@@ -321,6 +324,7 @@ class LibraryProvider extends ChangeNotifier {
         _manualAbsorbRemoves.clear();
         _absorbingBookIds.clear();
         _absorbingItemCache.clear();
+        _itemUpdatedAt.clear();
         _personalizedInFlight = null;
         _lastPersonalizedFetchAt = null;
         _lastPersonalizedFetchLibraryId = null;
@@ -366,6 +370,7 @@ class LibraryProvider extends ChangeNotifier {
       _series = [];
       _progressMap = {};
       _localProgressOverrides.clear();
+      _itemUpdatedAt.clear();
       _selectedLibraryId = null;
       _errorMessage = null;
       _connectivitySub?.cancel();
@@ -581,6 +586,16 @@ class LibraryProvider extends ChangeNotifier {
       await _refreshProgress();
       _personalizedSections =
           await _api!.getPersonalizedView(_selectedLibraryId!);
+      // Cache updatedAt timestamps for cover cache-busting
+      for (final section in _personalizedSections) {
+        for (final e in (section['entities'] as List<dynamic>? ?? [])) {
+          if (e is Map<String, dynamic>) {
+            final id = e['id'] as String?;
+            final ts = e['updatedAt'] as num?;
+            if (id != null && ts != null) _itemUpdatedAt[id] = ts.toInt();
+          }
+        }
+      }
       await _updateAbsorbingCache();
     } catch (e) {
       if (_isLikelyNetworkError(e)) {
@@ -693,6 +708,9 @@ class LibraryProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Register an item's updatedAt timestamp for cover cache-busting.
+  void registerUpdatedAt(String id, int ts) => _itemUpdatedAt[id] = ts;
+
   /// Build a cover URL for an item.
   /// When offline, prefers the locally cached cover file.
   /// For podcast episodes stored under composite keys (e.g. "showId-epId"),
@@ -707,7 +725,8 @@ class LibraryProvider extends ChangeNotifier {
 
     // Try API first when online
     if (_api != null && !isOffline) {
-      return _api!.getCoverUrl(apiItemId, width: width);
+      final ts = _itemUpdatedAt[apiItemId];
+      return _api!.getCoverUrl(apiItemId, width: width, updatedAt: ts);
     }
 
     // Offline or no API: prefer local cover path

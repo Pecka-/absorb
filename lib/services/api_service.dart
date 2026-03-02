@@ -188,8 +188,10 @@ class ApiService {
   }
 
   /// Build a cover image URL for a library item.
-  String getCoverUrl(String itemId, {int width = 400}) {
-    return '$_cleanBaseUrl/api/items/$itemId/cover?width=$width&token=$token';
+  String getCoverUrl(String itemId, {int width = 400, int? updatedAt}) {
+    var url = '$_cleanBaseUrl/api/items/$itemId/cover?width=$width&token=$token';
+    if (updatedAt != null) url += '&ts=$updatedAt';
+    return url;
   }
 
   /// Get current user info including all mediaProgress.
@@ -264,8 +266,10 @@ class ApiService {
   }
 
   /// Build an author image URL.
-  String getAuthorImageUrl(String authorId, {int width = 200}) {
-    return '$_cleanBaseUrl/api/authors/$authorId/image?width=$width&token=$token';
+  String getAuthorImageUrl(String authorId, {int width = 200, int? updatedAt}) {
+    var url = '$_cleanBaseUrl/api/authors/$authorId/image?width=$width&token=$token';
+    if (updatedAt != null) url += '&ts=$updatedAt';
+    return url;
   }
 
   /// Get a library's filter data (authors, series, genres, etc.)

@@ -37,6 +37,8 @@ class BookResultTile extends StatelessWidget {
           ? serverUrl!.substring(0, serverUrl!.length - 1)
           : serverUrl!;
       coverUrl = '$cleanUrl/api/items/$itemId/cover?width=200&token=$token';
+      final ts = item['updatedAt'] as num?;
+      if (ts != null) coverUrl = '$coverUrl&ts=${ts.toInt()}';
     }
 
     return Padding(
@@ -234,6 +236,8 @@ class AuthorResultTile extends StatelessWidget {
           : serverUrl!;
       imageUrl =
           '$cleanUrl/api/authors/$authorId/image?width=200&token=$token';
+      final ts = author['updatedAt'] as num?;
+      if (ts != null) imageUrl = '$imageUrl&ts=${ts.toInt()}';
     }
 
     return Padding(

@@ -41,6 +41,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   StreamSubscription<Duration>? _chapterTrackSub;
   int _lastChapterIdx = -1;
   ui.Image? _blurredCover; // Precached blurred background
+  String? _blurredCoverUrl; // URL the blur was built from
   List<String> _buttonOrder = PlayerSettings.defaultButtonOrder;
 
   @override
@@ -246,6 +247,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     _rederiveCoverScheme();
     // Precache the blurred version of the cover
     if (_blurredCover == null) {
+      _blurredCoverUrl = _coverUrl;
       _precacheBlur(provider);
     }
   }
@@ -353,6 +355,12 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       }
     } else {
       bookProgress = progress;
+    }
+
+    // Invalidate blurred background when cover URL changes (e.g. after server update)
+    if (_blurredCover != null && _blurredCoverUrl != _coverUrl) {
+      _blurredCover?.dispose();
+      _blurredCover = null;
     }
 
     return Container(

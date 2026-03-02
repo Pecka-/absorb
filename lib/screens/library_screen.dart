@@ -294,6 +294,10 @@ class LibraryScreenState extends State<LibraryScreen> {
         _totalItems = total;
         for (final r in results) {
           if (r is Map<String, dynamic>) {
+            // Register updatedAt for cover cache-busting
+            final id = r['id'] as String?;
+            final ts = r['updatedAt'] as num?;
+            if (id != null && ts != null) lib.registerUpdatedAt(id, ts.toInt());
             // Client-side filters
             if (_filter == LibraryFilter.downloaded) {
               final id = r['id'] as String? ?? '';
