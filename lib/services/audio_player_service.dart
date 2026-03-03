@@ -251,7 +251,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     } else if ((speed - 2.5).abs() < 0.01) {
       speedIcon = 'drawable/ic_speed_250';
     } else {
-      speedIcon = 'drawable/ic_speed'; // Generic fallback
+      speedIcon = 'drawable/ic_speed_100'; // Safe fallback
     }
     final speedAction = MediaControl.custom(
       androidIcon: speedIcon,
@@ -893,6 +893,8 @@ class AudioPlayerService extends ChangeNotifier {
       debugPrint('[Player] AudioService initialized');
       // Configure audio session for audiobook playback
       await _configureAudioSession();
+    } catch (e, st) {
+      debugPrint('[Player] AudioService.init failed: $e\n$st');
     } finally {
       if (!_initCompleter.isCompleted) _initCompleter.complete();
     }
