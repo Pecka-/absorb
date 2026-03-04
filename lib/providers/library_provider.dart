@@ -51,6 +51,9 @@ class LibraryProvider extends ChangeNotifier {
     _rollingDownloadSeries.add(seriesOrShowId);
     await _saveRollingDownloadSeries();
     notifyListeners();
+    // If something is currently playing, trigger rolling downloads immediately
+    final playingKey = AudioPlayerService().currentItemId;
+    if (playingKey != null) _checkRollingDownloads(playingKey);
   }
 
   Future<void> disableRollingDownload(String seriesOrShowId) async {
@@ -423,11 +426,11 @@ class LibraryProvider extends ChangeNotifier {
       AudioPlayerService.setOnPlayStartedCallback(_checkRollingDownloads);
       ChromecastService.setOnBookFinishedCallback(markFinishedLocally);
 
-      restoreOfflineMode().then((_) {
+      restoreOfflineMode().then((_) async {
         debugPrint('[Library] restoreOfflineMode done, serverReachable=${auth.serverReachable} api=${_api != null} offline=$isOffline');
         _startConnectivityMonitoring();
         _loadManualAbsorbing();
-        _loadRollingDownloadSeries();
+        await _loadRollingDownloadSeries();
 
         // If server was unreachable on startup, force offline mode and ping
         if (!auth.serverReachable) {
@@ -499,6 +502,10 @@ class LibraryProvider extends ChangeNotifier {
         // Connectivity restored — optimistically go online; if server is still
         // down the API call will fail and _goOfflineWithPing() will be called.
         setNetworkOffline(false);
+        // WiFi restored — catch up on any pending rolling downloads
+        if (result.contains(ConnectivityResult.wifi) && _rollingDownloadSeries.isNotEmpty) {
+          _catchUpRollingDownloads();
+        }
       }
     });
   }
@@ -617,6 +624,10 @@ class LibraryProvider extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+
+    // Catch up on any rolling downloads that were missed (e.g. app was closed,
+    // or WiFi wasn't available when the download should have triggered)
+    _catchUpRollingDownloads();
   }
 
   /// Change the selected library and reload data.
@@ -1645,6 +1656,62 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   // ── Rolling auto-download ──────────────────────────────────────────────
+
+  /// Called on startup after libraries load. For each opted-in series/show,
+  /// finds the most recently active item and triggers rolling downloads.
+  /// Catches up on downloads that were blocked (e.g. no WiFi) earlier.
+  void _catchUpRollingDownloads() async {
+    if (_api == null || isOffline || _rollingDownloadSeries.isEmpty) return;
+
+    // If wifi-only is on, check we're actually on WiFi
+    final wifiOnly = await PlayerSettings.getWifiOnlyDownloads();
+    if (wifiOnly) {
+      final connectivity = await Connectivity().checkConnectivity();
+      if (!connectivity.contains(ConnectivityResult.wifi)) return;
+    }
+
+    final count = await PlayerSettings.getRollingDownloadCount();
+
+    for (final seriesOrShowId in _rollingDownloadSeries.toList()) {
+      // Check podcasts: scan progressMap for compound keys belonging to this show
+      String? latestPodcastKey;
+      num latestPodcastUpdate = 0;
+      // Check books: we'll need to find items belonging to this series
+      String? latestBookKey;
+      num latestBookUpdate = 0;
+
+      for (final entry in _progressMap.entries) {
+        final key = entry.key;
+        final data = entry.value;
+        if (data['isFinished'] == true) continue;
+        final lastUpdate = data['lastUpdate'] as num? ?? 0;
+
+        if (key.length > 36 && key.substring(0, 36) == seriesOrShowId) {
+          // Podcast episode matching this show
+          if (lastUpdate > latestPodcastUpdate) {
+            latestPodcastUpdate = lastUpdate;
+            latestPodcastKey = key;
+          }
+        } else if (key.length <= 36) {
+          // Potential book — check if it belongs to this series
+          final itemData = _itemDataWithSeries(key);
+          if (itemData != null) {
+            final (sid, _) = _extractSeries(itemData);
+            if (sid == seriesOrShowId && lastUpdate > latestBookUpdate) {
+              latestBookUpdate = lastUpdate;
+              latestBookKey = key;
+            }
+          }
+        }
+      }
+
+      if (latestPodcastKey != null) {
+        _rollingDownloadPodcast(latestPodcastKey, count);
+      } else if (latestBookKey != null) {
+        _rollingDownloadBook(latestBookKey, count);
+      }
+    }
+  }
 
   /// Called when a new item starts playing. If the item's series/show is
   /// opted in for rolling downloads, ensures the next N items are downloaded.

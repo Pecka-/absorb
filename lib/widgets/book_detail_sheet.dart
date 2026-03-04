@@ -376,6 +376,10 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
         if (chapters.isNotEmpty) _chip(Icons.list_rounded, '${chapters.length} chapters'),
         if (publisher.isNotEmpty) _chip(Icons.business_rounded, publisher),
         ...genres.take(3).map((g) => _chip(Icons.tag_rounded, g)),
+        if (progressData?['startedAt'] is num)
+          _chip(Icons.play_circle_outline_rounded, 'Started ${_fmtDate((progressData!['startedAt'] as num).toInt())}'),
+        if (progressData?['finishedAt'] is num)
+          _chip(Icons.check_circle_outline_rounded, 'Finished ${_fmtDate((progressData!['finishedAt'] as num).toInt())}'),
       ]),
       if (seriesEntries.isNotEmpty) ...[const SizedBox(height: 16),
         ...seriesEntries.map((s) {
@@ -475,6 +479,12 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
         Icon(icon, size: 12, color: cs.onSurface.withValues(alpha: 0.3)), const SizedBox(width: 4),
         Flexible(child: Text(text, overflow: TextOverflow.ellipsis, maxLines: 1,
           style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11)))]));
+  }
+
+  String _fmtDate(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${months[d.month - 1]} ${d.day}, ${d.year}';
   }
 
   String _fmtDur(double s) {
