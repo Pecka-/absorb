@@ -68,6 +68,9 @@ void main() async {
   final savedTheme = await PlayerSettings.getThemeMode();
   themeNotifier.value = parseThemeMode(savedTheme);
 
+  // Migrate old auto-play booleans → unified queueMode (one-time, no-op after first run)
+  await PlayerSettings.migrateQueueMode();
+
   // Load device info for server identification
   await ApiService.initDeviceId();
   await ApiService.initVersion();

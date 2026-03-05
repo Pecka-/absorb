@@ -96,6 +96,30 @@ class PlayerSettings {
   static Future<bool> getRollingDownloadDeleteFinished() => _get('rollingDownloadDeleteFinished', false);
   static Future<void> setRollingDownloadDeleteFinished(bool value) => _set('rollingDownloadDeleteFinished', value);
 
+  static Future<bool> getQueueAutoDownload() => _get('queueAutoDownload', false);
+  static Future<void> setQueueAutoDownload(bool value) => _set('queueAutoDownload', value);
+
+  static Future<bool> getMergeAbsorbingLibraries() => _get('mergeAbsorbingLibraries', false);
+  static Future<void> setMergeAbsorbingLibraries(bool value) => _set('mergeAbsorbingLibraries', value);
+
+  static Future<int> getMaxConcurrentDownloads() => _get('maxConcurrentDownloads', 1);
+  static Future<void> setMaxConcurrentDownloads(int value) => _set('maxConcurrentDownloads', value);
+
+  // ── Queue mode (replaces autoPlayNextBook + autoPlayNextPodcast) ──
+  // Values: 'off', 'manual', 'auto_next'
+  static Future<String> getQueueMode() => _get('queueMode', 'off');
+  static Future<void> setQueueMode(String value) => _set('queueMode', value);
+
+  /// One-time migration from the old boolean auto-play settings to queueMode.
+  static Future<void> migrateQueueMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.containsKey('queueMode')) return;
+    final autoBook = prefs.getBool('autoPlayNextBook') ?? false;
+    final autoPod = prefs.getBool('autoPlayNextPodcast') ?? false;
+    await prefs.setString('queueMode', (autoBook || autoPod) ? 'auto_next' : 'off');
+  }
+
+  // Legacy getters kept for backup service compatibility
   static Future<bool> getAutoPlayNextBook() => _get('autoPlayNextBook', false);
   static Future<void> setAutoPlayNextBook(bool value) => _set('autoPlayNextBook', value);
 

@@ -45,8 +45,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _resetSleepOnPause = false;
   bool _sleepFadeOut = true;
   int _shakeAddMinutes = 5;
-  bool _autoPlayNextBook = false;
-  bool _autoPlayNextPodcast = false;
+  String _queueMode = 'off';
+  bool _queueAutoDownload = false;
+  bool _mergeAbsorbingLibraries = false;
+  int _maxConcurrentDownloads = 1;
   String _whenFinished = 'overlay';
   bool _hideEbookOnly = false;
   bool _showGoodreadsButton = false;
@@ -81,8 +83,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final resetOnPause = await PlayerSettings.getResetSleepOnPause();
     final sleepFade = await PlayerSettings.getSleepFadeOut();
     final shakeMins = await PlayerSettings.getShakeAddMinutes();
-    final autoPlayBook = await PlayerSettings.getAutoPlayNextBook();
-    final autoPlayPod = await PlayerSettings.getAutoPlayNextPodcast();
+    final queueMode = await PlayerSettings.getQueueMode();
+    final queueAutoDl = await PlayerSettings.getQueueAutoDownload();
+    final mergeLibs = await PlayerSettings.getMergeAbsorbingLibraries();
+    final maxConc = await PlayerSettings.getMaxConcurrentDownloads();
     final whenFinished = await PlayerSettings.getWhenFinished();
     final hideEbook = await PlayerSettings.getHideEbookOnly();
     final showGoodreads = await PlayerSettings.getShowGoodreadsButton();
@@ -109,8 +113,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _resetSleepOnPause = resetOnPause;
       _sleepFadeOut = sleepFade;
       _shakeAddMinutes = shakeMins;
-      _autoPlayNextBook = autoPlayBook;
-      _autoPlayNextPodcast = autoPlayPod;
+      _queueMode = queueMode;
+      _queueAutoDownload = queueAutoDl;
+      _mergeAbsorbingLibraries = mergeLibs;
+      _maxConcurrentDownloads = maxConc;
       _whenFinished = whenFinished;
       _hideEbookOnly = hideEbook;
       _showGoodreadsButton = showGoodreads;
@@ -514,7 +520,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('When finished', style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
+                        Text('When absorbed', style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
                         const SizedBox(height: 4),
                         Text('What happens to the absorbing card when a book or episode finishes',
                           style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
@@ -522,7 +528,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         SizedBox(width: double.infinity, child: SegmentedButton<String>(
                           segments: const [
                             ButtonSegment(value: 'overlay', icon: Icon(Icons.layers_rounded), label: Text('Show Overlay')),
-                            ButtonSegment(value: 'auto_remove', icon: Icon(Icons.auto_delete_rounded), label: Text('Auto-remove')),
+                            ButtonSegment(value: 'auto_remove', icon: Icon(Icons.auto_delete_rounded), label: Text('Auto-release')),
                           ],
                           selected: {_whenFinished},
                           onSelectionChanged: _loaded ? (s) {
@@ -533,29 +539,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         )),
                       ]),
                     ),
-                    const Divider(height: 1, indent: 16, endIndent: 16),
                     SwitchListTile(
-                      title: const Text('Auto-play next book in series'),
+                      title: const Text('Merge libraries'),
                       subtitle: Text(
-                        _autoPlayNextBook ? 'On — next book plays automatically' : 'Off',
+                        _mergeAbsorbingLibraries
+                            ? 'Absorbing page shows items from all libraries'
+                            : 'Absorbing page shows current library only',
                         style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                      value: _autoPlayNextBook,
+                      value: _mergeAbsorbingLibraries,
                       onChanged: _loaded ? (v) {
-                        setState(() => _autoPlayNextBook = v);
-                        PlayerSettings.setAutoPlayNextBook(v);
+                        setState(() => _mergeAbsorbingLibraries = v);
+                        PlayerSettings.setMergeAbsorbingLibraries(v);
                       } : null,
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
-                    SwitchListTile(
-                      title: const Text('Auto-play next podcast episode'),
-                      subtitle: Text(
-                        _autoPlayNextPodcast ? 'On — next episode plays automatically' : 'Off',
-                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                      value: _autoPlayNextPodcast,
-                      onChanged: _loaded ? (v) {
-                        setState(() => _autoPlayNextPodcast = v);
-                        PlayerSettings.setAutoPlayNextPodcast(v);
-                      } : null,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Row(children: [
+                          Text('Queue mode', style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
+                          const SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: () => showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Queue Mode'),
+                                content: const Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Off', style: TextStyle(fontWeight: FontWeight.w600)),
+                                    SizedBox(height: 4),
+                                    Text('Playback stops when the current book or episode finishes.'),
+                                    SizedBox(height: 12),
+                                    Text('Manual Queue', style: TextStyle(fontWeight: FontWeight.w600)),
+                                    SizedBox(height: 4),
+                                    Text('Your absorbing cards act as a playlist. When one finishes, the next non-finished card auto-plays. Add items with the "Add to Absorbing" button on a book or episode and reorder from the absorbing screen.'),
+                                    SizedBox(height: 12),
+                                    Text('Auto Absorb', style: TextStyle(fontWeight: FontWeight.w600)),
+                                    SizedBox(height: 4),
+                                    Text('Automatically absorbs the next book in a series or the next episode in a podcast show.'),
+                                  ],
+                                ),
+                                actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Got it'))],
+                              ),
+                            ),
+                            child: Icon(Icons.info_outline_rounded, size: 16, color: cs.onSurfaceVariant),
+                          ),
+                        ]),
+                        const SizedBox(height: 4),
+                        Text(
+                          _queueMode == 'off' ? 'Playback stops when current item finishes'
+                            : _queueMode == 'manual' ? 'Auto-plays next non-finished card in order'
+                            : 'Auto-absorbs next book in series or podcast episode',
+                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(width: double.infinity, child: SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded), label: Text('Off')),
+                            ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded), label: Text('Manual')),
+                            ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded), label: Text('Auto')),
+                          ],
+                          selected: {_queueMode},
+                          onSelectionChanged: _loaded ? (s) {
+                            setState(() => _queueMode = s.first);
+                            PlayerSettings.setQueueMode(s.first);
+                          } : null,
+                          style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                        )),
+                        if (_queueMode == 'manual') ...[
+                          const SizedBox(height: 4),
+                          SwitchListTile(
+                            title: const Text('Auto-download queue'),
+                            subtitle: Text(
+                              _queueAutoDownload
+                                  ? 'Keep next $_rollingDownloadCount items downloaded'
+                                  : 'Off — manual downloads only',
+                              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                            value: _queueAutoDownload,
+                            onChanged: _loaded ? (v) {
+                              setState(() => _queueAutoDownload = v);
+                              PlayerSettings.setQueueAutoDownload(v);
+                            } : null,
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ],
+                      ]),
                     ),
                   ],
                 ),
@@ -970,6 +1041,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       } : null,
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 12),
+                          Text('Concurrent downloads', style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
+                          const SizedBox(height: 8),
+                          SizedBox(width: double.infinity, child: SegmentedButton<int>(
+                            segments: const [
+                              ButtonSegment(value: 1, label: Text('1')),
+                              ButtonSegment(value: 2, label: Text('2')),
+                              ButtonSegment(value: 3, label: Text('3')),
+                              ButtonSegment(value: 4, label: Text('4')),
+                              ButtonSegment(value: 5, label: Text('5')),
+                            ],
+                            selected: {_maxConcurrentDownloads},
+                            onSelectionChanged: (v) {
+                              setState(() => _maxConcurrentDownloads = v.first);
+                              PlayerSettings.setMaxConcurrentDownloads(v.first);
+                            },
+                          )),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
                     ListTile(
                       title: const Text('Auto-download'),
                       subtitle: Text(
@@ -1002,7 +1100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     SwitchListTile(
-                      title: const Text('Delete finished downloads'),
+                      title: const Text('Delete absorbed downloads'),
                       subtitle: Text(
                         _rollingDownloadDeleteFinished
                             ? 'Finished items are removed to save space'

@@ -116,14 +116,14 @@ class DownloadService extends ChangeNotifier {
   DownloadService._();
 
   final Map<String, DownloadInfo> _downloads = {};
-  String? _activeDownloadId;
-  http.Client? _httpClient;
-  bool _cancelled = false;
+  final Set<String> _activeDownloadIds = {};
+  final Map<String, http.Client> _httpClients = {};
+  final Set<String> _cancelledIds = {};
+  final Map<String, int> _downloadSlots = {};
   String? _customDownloadPath;
 
   /// Queue of pending download requests.
   final List<_QueuedDownload> _queue = [];
-  bool _processingQueue = false;
 
   /// The current download directory path, or null if using default.
   String? get customDownloadPath => _customDownloadPath;
@@ -425,7 +425,7 @@ class DownloadService extends ChangeNotifier {
     String? coverUrl,
     String? episodeId,
   }) async {
-    if (_activeDownloadId == itemId) return null;
+    if (_activeDownloadIds.contains(itemId)) return null;
     if (isDownloaded(itemId)) return null;
     // Already queued — don't duplicate
     if (_queue.any((q) => q.itemId == itemId)) return null;
@@ -439,8 +439,10 @@ class DownloadService extends ChangeNotifier {
       }
     }
 
-    // If another download is active, queue this one
-    if (_activeDownloadId != null) {
+    final maxConcurrent = await PlayerSettings.getMaxConcurrentDownloads();
+
+    // If at capacity, queue this one
+    if (_activeDownloadIds.length >= maxConcurrent) {
       _queue.add(_QueuedDownload(
         api: api,
         itemId: itemId,
@@ -458,41 +460,47 @@ class DownloadService extends ChangeNotifier {
         coverUrl: coverUrl,
       );
       notifyListeners();
-      // Ensure queue processor is running
-      if (!_processingQueue) unawaited(_processQueue());
       return null;
     }
 
-    await _executeDownload(
+    // Launch immediately (fire-and-forget so caller doesn't block)
+    unawaited(_executeDownload(
       api: api,
       itemId: itemId,
       title: title,
       author: author,
       coverUrl: coverUrl,
       episodeId: episodeId,
-    );
-    // Process any queued downloads
-    if (_queue.isNotEmpty && !_processingQueue) {
-      unawaited(_processQueue());
-    }
+    ));
     return null;
   }
 
+  /// Fill free download slots from the queue.
   Future<void> _processQueue() async {
-    _processingQueue = true;
-    while (_activeDownloadId != null) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
-    while (_queue.isNotEmpty) {
+    final maxConcurrent = await PlayerSettings.getMaxConcurrentDownloads();
+    while (_queue.isNotEmpty && _activeDownloadIds.length < maxConcurrent) {
       final next = _queue.removeAt(0);
       // Skip if cancelled/removed while waiting
       if (isDownloaded(next.itemId)) continue;
-      await _executeDownload(
+      if (_activeDownloadIds.contains(next.itemId)) continue;
+      unawaited(_executeDownload(
         api: next.api, itemId: next.itemId, title: next.title,
         author: next.author, coverUrl: next.coverUrl, episodeId: next.episodeId,
-      );
+      ));
     }
-    _processingQueue = false;
+  }
+
+  /// Assign the lowest free notification slot (0–4).
+  int _assignSlot(String itemId) {
+    for (int i = 0; i < 5; i++) {
+      if (!_downloadSlots.containsValue(i)) {
+        _downloadSlots[itemId] = i;
+        return i;
+      }
+    }
+    // Fallback (shouldn't happen with max 5 concurrent)
+    _downloadSlots[itemId] = 0;
+    return 0;
   }
 
   Future<void> _executeDownload({
@@ -503,8 +511,12 @@ class DownloadService extends ChangeNotifier {
     String? coverUrl,
     String? episodeId,
   }) async {
-    _activeDownloadId = itemId;
-    _cancelled = false;
+    _activeDownloadIds.add(itemId);
+    _cancelledIds.remove(itemId);
+    final slot = _assignSlot(itemId);
+    final client = http.Client();
+    _httpClients[itemId] = client;
+
     _downloads[itemId] = DownloadInfo(
       itemId: itemId,
       status: DownloadStatus.downloading,
@@ -515,12 +527,12 @@ class DownloadService extends ChangeNotifier {
     );
     notifyListeners();
 
-    // Show persistent download notification via foreground service
+    // Show per-download notification + foreground service
     final notif = DownloadNotificationService();
     try {
-      await notif.startForeground(title: title, author: author);
+      await notif.startDownload(slot: slot, title: title, author: author);
     } catch (e) {
-      debugPrint('[Download] startForeground non-fatal error: $e');
+      debugPrint('[Download] startDownload non-fatal error: $e');
     }
 
     try {
@@ -567,36 +579,31 @@ class DownloadService extends ChangeNotifier {
       }
 
       final localPaths = List<String?>.filled(audioTracks.length, null);
-      _httpClient = http.Client();
 
       // Track progress per-track for overall calculation
       final trackProgress = List<double>.filled(audioTracks.length, 0.0);
-      int _lastNotifPercent = -1;
-      DateTime _lastUIUpdate = DateTime.now();
+      int lastNotifPercent = -1;
+      DateTime lastUIUpdate = DateTime.now();
 
-      Future<void> _showProgressSafe(
-        DownloadNotificationService notif,
-        String title,
-        String? author,
-        double progress,
-      ) async {
+      Future<void> showProgressSafe(double progress) async {
         try {
-          await notif.showProgress(
+          await notif.updateProgress(
+            slot: slot,
             title: title,
             author: author,
             progress: progress,
           );
         } catch (e) {
-          debugPrint('[Download] showProgress non-fatal error: $e');
+          debugPrint('[Download] updateProgress non-fatal error: $e');
         }
       }
 
-      void _updateProgress() {
+      void updateProgress() {
         final overall = trackProgress.reduce((a, b) => a + b) / audioTracks.length;
         final now = DateTime.now();
         // Throttle UI updates to max ~4/sec
-        if (now.difference(_lastUIUpdate).inMilliseconds > 250) {
-          _lastUIUpdate = now;
+        if (now.difference(lastUIUpdate).inMilliseconds > 250) {
+          lastUIUpdate = now;
           _downloads[itemId] = DownloadInfo(
             itemId: itemId,
             status: DownloadStatus.downloading,
@@ -609,13 +616,13 @@ class DownloadService extends ChangeNotifier {
         }
         // Throttle notification to every 2%
         final pct = (overall * 50).round();
-        if (pct != _lastNotifPercent) {
-          _lastNotifPercent = pct;
-          unawaited(_showProgressSafe(notif, title, author, overall));
+        if (pct != lastNotifPercent) {
+          lastNotifPercent = pct;
+          unawaited(showProgressSafe(overall));
         }
       }
 
-      Future<void> _downloadTrack(int i) async {
+      Future<void> downloadTrack(int i) async {
         final track = audioTracks[i] as Map<String, dynamic>;
         final contentUrl = track['contentUrl'] as String? ?? '';
         final fullUrl = api.buildTrackUrl(contentUrl);
@@ -637,7 +644,7 @@ class DownloadService extends ChangeNotifier {
 
         final request = http.Request('GET', Uri.parse(fullUrl));
         api.mediaHeaders.forEach((key, value) => request.headers[key] = value);
-        final response = await _httpClient!.send(request)
+        final response = await client.send(request)
             .timeout(const Duration(seconds: 30));
 
         if (response.statusCode != 200) {
@@ -652,7 +659,7 @@ class DownloadService extends ChangeNotifier {
             sink.add(chunk);
             receivedBytes += chunk.length;
             trackProgress[i] = totalBytes > 0 ? receivedBytes / totalBytes : 0.5;
-            _updateProgress();
+            updateProgress();
           }
         } finally {
           await sink.close();
@@ -661,11 +668,12 @@ class DownloadService extends ChangeNotifier {
       }
 
       // Download tracks in parallel batches of 3
-      const concurrency = 3;
-      for (int batch = 0; batch < audioTracks.length; batch += concurrency) {
-        final end = (batch + concurrency).clamp(0, audioTracks.length);
+      const trackConcurrency = 3;
+      for (int batch = 0; batch < audioTracks.length; batch += trackConcurrency) {
+        if (_cancelledIds.contains(itemId)) break;
+        final end = (batch + trackConcurrency).clamp(0, audioTracks.length);
         await Future.wait([
-          for (int i = batch; i < end; i++) _downloadTrack(i),
+          for (int i = batch; i < end; i++) downloadTrack(i),
         ]);
       }
 
@@ -704,7 +712,7 @@ class DownloadService extends ChangeNotifier {
 
       // Show completion notification
       try {
-        await notif.showComplete(title: title);
+        await notif.finishDownload(slot: slot, title: title);
       } catch (_) {}
 
       // If this book is currently streaming, hot-swap to local files
@@ -724,9 +732,12 @@ class DownloadService extends ChangeNotifier {
         if (bookDir.existsSync()) bookDir.deleteSync(recursive: true);
       } catch (_) {}
 
-      if (_cancelled) {
+      if (_cancelledIds.contains(itemId)) {
         debugPrint('[Download] Cancelled: $title');
         _downloads.remove(itemId);
+        try {
+          await notif.cancelDownload(slot);
+        } catch (_) {}
       } else {
         final isStorageFull = e.toString().contains('No space left') ||
             e.toString().contains('ENOSPC');
@@ -743,17 +754,27 @@ class DownloadService extends ChangeNotifier {
         );
         // Show error notification
         try {
-          await notif.showError(title: title, message: '$errorMsg: $title');
+          await notif.finishDownload(
+            slot: slot,
+            title: title,
+            success: false,
+            errorMessage: '$errorMsg: $title',
+          );
         } catch (notifErr) {
-          debugPrint('[Download] showError non-fatal error: $notifErr');
+          debugPrint('[Download] finishDownload non-fatal error: $notifErr');
         }
       }
     }
 
-    _activeDownloadId = null;
-    _httpClient = null;
+    _activeDownloadIds.remove(itemId);
+    _downloadSlots.remove(itemId);
+    _httpClients.remove(itemId);
+    _cancelledIds.remove(itemId);
 
     notifyListeners();
+
+    // Fill freed slot from queue
+    unawaited(_processQueue());
   }
 
   Future<void> deleteDownload(String itemId, {bool skipStopCheck = false}) async {
@@ -795,16 +816,11 @@ class DownloadService extends ChangeNotifier {
   }
 
   void cancelDownload(String itemId) {
-    if (_activeDownloadId == itemId) {
-      _cancelled = true;
-      _httpClient?.close();
-      _httpClient = null;
-      _activeDownloadId = null;
-      unawaited(
-        DownloadNotificationService().dismiss().catchError((Object e) {
-          debugPrint('[Download] dismiss non-fatal error: $e');
-        }),
-      );
+    if (_activeDownloadIds.contains(itemId)) {
+      _cancelledIds.add(itemId);
+      _httpClients[itemId]?.close();
+      _httpClients.remove(itemId);
+      // Notification cleanup happens in _executeDownload's catch block
     }
     // Remove from queue if it was waiting
     _queue.removeWhere((q) => q.itemId == itemId);

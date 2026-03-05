@@ -17,8 +17,10 @@ class BackupService {
     final settings = <String, dynamic>{
       'defaultSpeed': await PlayerSettings.getDefaultSpeed(),
       'wifiOnlyDownloads': await PlayerSettings.getWifiOnlyDownloads(),
-      'autoPlayNextBook': await PlayerSettings.getAutoPlayNextBook(),
-      'autoPlayNextPodcast': await PlayerSettings.getAutoPlayNextPodcast(),
+      'queueMode': await PlayerSettings.getQueueMode(),
+      // Legacy keys for backward compat with older app versions
+      'autoPlayNextBook': (await PlayerSettings.getQueueMode()) == 'auto_next',
+      'autoPlayNextPodcast': (await PlayerSettings.getQueueMode()) == 'auto_next',
       'whenFinished': await PlayerSettings.getWhenFinished(),
       'showBookSlider': await PlayerSettings.getShowBookSlider(),
       'speedAdjustedTime': await PlayerSettings.getSpeedAdjustedTime(),
@@ -41,6 +43,9 @@ class BackupService {
       'cardButtonOrder': await PlayerSettings.getCardButtonOrder(),
       'rollingDownloadCount': await PlayerSettings.getRollingDownloadCount(),
       'rollingDownloadDeleteFinished': await PlayerSettings.getRollingDownloadDeleteFinished(),
+      'queueAutoDownload': await PlayerSettings.getQueueAutoDownload(),
+      'mergeAbsorbingLibraries': await PlayerSettings.getMergeAbsorbingLibraries(),
+      'maxConcurrentDownloads': await PlayerSettings.getMaxConcurrentDownloads(),
     };
 
     // AutoRewind
@@ -141,8 +146,14 @@ class BackupService {
     final s = data['settings'] as Map<String, dynamic>? ?? {};
     if (s['defaultSpeed'] != null) PlayerSettings.setDefaultSpeed((s['defaultSpeed'] as num).toDouble());
     if (s['wifiOnlyDownloads'] != null) PlayerSettings.setWifiOnlyDownloads(s['wifiOnlyDownloads'] as bool);
-    if (s['autoPlayNextBook'] != null) PlayerSettings.setAutoPlayNextBook(s['autoPlayNextBook'] as bool);
-    if (s['autoPlayNextPodcast'] != null) PlayerSettings.setAutoPlayNextPodcast(s['autoPlayNextPodcast'] as bool);
+    if (s['queueMode'] != null) {
+      PlayerSettings.setQueueMode(s['queueMode'] as String);
+    } else {
+      // Legacy backup — migrate the old booleans
+      final autoBook = s['autoPlayNextBook'] as bool? ?? false;
+      final autoPod = s['autoPlayNextPodcast'] as bool? ?? false;
+      PlayerSettings.setQueueMode((autoBook || autoPod) ? 'auto_next' : 'off');
+    }
     if (s['whenFinished'] != null) PlayerSettings.setWhenFinished(s['whenFinished'] as String);
     if (s['showBookSlider'] != null) PlayerSettings.setShowBookSlider(s['showBookSlider'] as bool);
     if (s['speedAdjustedTime'] != null) PlayerSettings.setSpeedAdjustedTime(s['speedAdjustedTime'] as bool);
@@ -169,6 +180,9 @@ class BackupService {
     }
     if (s['rollingDownloadCount'] != null) PlayerSettings.setRollingDownloadCount(s['rollingDownloadCount'] as int);
     if (s['rollingDownloadDeleteFinished'] != null) PlayerSettings.setRollingDownloadDeleteFinished(s['rollingDownloadDeleteFinished'] as bool);
+    if (s['queueAutoDownload'] != null) PlayerSettings.setQueueAutoDownload(s['queueAutoDownload'] as bool);
+    if (s['mergeAbsorbingLibraries'] != null) PlayerSettings.setMergeAbsorbingLibraries(s['mergeAbsorbingLibraries'] as bool);
+    if (s['maxConcurrentDownloads'] != null) PlayerSettings.setMaxConcurrentDownloads(s['maxConcurrentDownloads'] as int);
 
     // AutoRewind
     final r = data['autoRewind'] as Map<String, dynamic>?;

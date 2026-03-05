@@ -355,10 +355,16 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
         _sheetBtn(icon: Icons.restart_alt_rounded,
           label: 'Reset Progress', onTap: () => _resetProgress(context, auth, duration)),
       ],
-      if (lib.isOnAbsorbingList(widget.itemId)) ...[
-        const SizedBox(height: 8),
-        _sheetBtn(icon: Icons.remove_circle_outline_rounded,
-          label: 'Remove from Absorbing', onTap: () async {
+      const SizedBox(height: 8),
+      _sheetBtn(
+        icon: lib.isOnAbsorbingList(widget.itemId)
+          ? Icons.remove_circle_outline_rounded
+          : Icons.add_circle_outline_rounded,
+        label: lib.isOnAbsorbingList(widget.itemId)
+          ? 'Remove from Absorbing'
+          : 'Add to Absorbing',
+        onTap: () async {
+          if (lib.isOnAbsorbingList(widget.itemId)) {
             await lib.removeFromAbsorbing(widget.itemId);
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -367,8 +373,24 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                 behavior: SnackBarBehavior.floating,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
             }
-          }),
-      ],
+          } else {
+            await lib.addToAbsorbingQueue(widget.itemId);
+            // Populate cache so the absorbing card can render immediately
+            if (_item != null) {
+              final cached = Map<String, dynamic>.from(_item!);
+              cached['_absorbingKey'] = widget.itemId;
+              lib.absorbingItemCache[widget.itemId] = cached;
+            }
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                duration: const Duration(seconds: 3),
+                content: const Text('Added to Absorbing'),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+            }
+          }
+        },
+      ),
       const SizedBox(height: 16),
       Wrap(spacing: 8, runSpacing: 8, children: [
         if (year.isNotEmpty) _chip(Icons.calendar_today_rounded, year),

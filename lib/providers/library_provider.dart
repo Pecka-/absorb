@@ -423,7 +423,10 @@ class LibraryProvider extends ChangeNotifier {
       // Restore manual offline preference and start connectivity monitoring
       // Must complete before loading libraries so offline state is correct
       AudioPlayerService.setOnBookFinishedCallback(markFinishedLocally);
-      AudioPlayerService.setOnPlayStartedCallback(_checkRollingDownloads);
+      AudioPlayerService.setOnPlayStartedCallback((key) {
+        _checkRollingDownloads(key);
+        _checkQueueAutoDownloads(key);
+      });
       ChromecastService.setOnBookFinishedCallback(markFinishedLocally);
 
       restoreOfflineMode().then((_) async {
@@ -505,8 +508,9 @@ class LibraryProvider extends ChangeNotifier {
         // down the API call will fail and _goOfflineWithPing() will be called.
         setNetworkOffline(false);
         // WiFi restored — catch up on any pending rolling downloads
-        if (result.contains(ConnectivityResult.wifi) && _rollingDownloadSeries.isNotEmpty) {
-          _catchUpRollingDownloads();
+        if (result.contains(ConnectivityResult.wifi)) {
+          if (_rollingDownloadSeries.isNotEmpty) _catchUpRollingDownloads();
+          _catchUpQueueAutoDownloads();
         }
       }
     });
@@ -630,6 +634,7 @@ class LibraryProvider extends ChangeNotifier {
     // Catch up on any rolling downloads that were missed (e.g. app was closed,
     // or WiFi wasn't available when the download should have triggered)
     _catchUpRollingDownloads();
+    _catchUpQueueAutoDownloads();
   }
 
   /// Change the selected library and reload data.
@@ -1064,10 +1069,10 @@ class LibraryProvider extends ChangeNotifier {
       }
     }
 
-    // Auto-play the next book in series if the setting is enabled.
+    // Auto-play the next book in series if auto_next mode is enabled.
     if (newContinueSeriesKey != null && _api != null) {
-      PlayerSettings.getAutoPlayNextBook().then((autoPlay) {
-        if (!autoPlay) return;
+      PlayerSettings.getQueueMode().then((mode) {
+        if (mode != 'auto_next') return;
         // Don't auto-play if BT/headphones just disconnected — the server
         // refresh is async and may return after the user left the car.
         if (AudioPlayerService.wasNoisyPause) return;
@@ -1240,13 +1245,31 @@ class LibraryProvider extends ChangeNotifier {
     }
   }
 
-  /// Add a book to the absorbing list manually.
+  /// Add a book to the absorbing list manually (at the front — used by playback).
   Future<void> addToAbsorbing(String itemId) async {
     _manualAbsorbAdds.add(itemId);
     _manualAbsorbRemoves.remove(itemId);
     _absorbingIdsAdd(itemId);
     await _saveManualAbsorbing();
     notifyListeners();
+  }
+
+  /// Add an item to the END of the absorbing list (queue behavior).
+  /// Used by the "Add to Absorbing" button — no playback started.
+  Future<void> addToAbsorbingQueue(String itemId) async {
+    _manualAbsorbAdds.add(itemId);
+    _manualAbsorbRemoves.remove(itemId);
+    _absorbingIdsAdd(itemId, atFront: false);
+    await _saveManualAbsorbing();
+    notifyListeners();
+  }
+
+  /// Replace the absorbing card order with a new order and persist.
+  Future<void> reorderAbsorbing(List<String> newOrder) async {
+    _absorbingBookIds = newOrder;
+    await _saveManualAbsorbing();
+    notifyListeners();
+    _catchUpQueueAutoDownloads();
   }
 
   /// Re-allow an item that was previously removed, so it can reappear in Absorbing.
@@ -1350,7 +1373,17 @@ class LibraryProvider extends ChangeNotifier {
     // Instant local auto-advance — uses cached metadata + download info,
     // no server call needed. Fires first so playback starts immediately,
     // then the server refresh still runs in the background when online.
-    _autoAdvanceOffline(itemId);
+    PlayerSettings.getQueueMode().then((mode) {
+      if (mode == 'manual') {
+        _manualQueueAdvance(itemId);
+      } else if (mode == 'auto_next') {
+        _autoAdvanceOffline(itemId);
+      }
+      // mode == 'off': do nothing, playback stops
+    });
+
+    // Slide the rolling download window forward for the finished item's series
+    _checkRollingDownloads(itemId);
 
     // Auto-delete finished download if this item's series/show is opted in
     if (_rollingDownloadSeries.isNotEmpty && DownloadService().isDownloaded(itemId)) {
@@ -1373,20 +1406,63 @@ class LibraryProvider extends ChangeNotifier {
       });
     }
 
-    // For podcast episodes, fetch the next episode and THEN refresh.
-    // This avoids a race where the refresh prunes the newly added episode.
+    // Auto-delete for queue-based downloads (manual queue + queueAutoDownload)
+    if (DownloadService().isDownloaded(itemId)) {
+      Future.wait([
+        PlayerSettings.getQueueMode(),
+        PlayerSettings.getQueueAutoDownload(),
+        PlayerSettings.getRollingDownloadDeleteFinished(),
+      ]).then((results) {
+        final qMode = results[0] as String;
+        final qAutoDl = results[1] as bool;
+        final deleteFin = results[2] as bool;
+        if (qMode != 'manual' || !qAutoDl || !deleteFin) return;
+        // Skip if already handled by series-based block above
+        bool handledBySeries = false;
+        if (_rollingDownloadSeries.isNotEmpty) {
+          if (itemId.length > 36) {
+            handledBySeries = _rollingDownloadSeries.contains(itemId.substring(0, 36));
+          } else {
+            final data = _itemDataWithSeries(itemId);
+            if (data != null) {
+              final (seriesId, _) = _extractSeries(data);
+              handledBySeries = seriesId != null && _rollingDownloadSeries.contains(seriesId);
+            }
+          }
+        }
+        if (!handledBySeries) {
+          DownloadService().deleteDownload(itemId, skipStopCheck: true);
+          _showRollingSnackBar('Deleted finished download');
+        }
+      });
+    }
+
+    // For podcast episodes, fetch the next episode (only in auto_next mode)
+    // and THEN refresh. This avoids a race where the refresh prunes the
+    // newly added episode.
     final isCompound = itemId.length > 36;
     if (isCompound && !skipRefresh && _api != null && !isOffline) {
-      // UUIDs are always 36 chars; compound key = "showUUID-episodeId"
       final showId = itemId.substring(0, 36);
       final episodeId = itemId.substring(37);
-      _addNextPodcastEpisode(showId, episodeId, itemId).then((_) {
-        if (_selectedLibraryId != null && !isOffline) {
-          loadPersonalizedView(force: true);
+      PlayerSettings.getQueueMode().then((queueMode) {
+        if (queueMode == 'auto_next') {
+          _addNextPodcastEpisode(showId, episodeId, itemId).then((_) {
+            if (_selectedLibraryId != null && !isOffline) {
+              loadPersonalizedView(force: true);
+            }
+            PlayerSettings.getWhenFinished().then((mode) {
+              if (mode == 'auto_remove') removeFromAbsorbing(itemId);
+            });
+          });
+        } else {
+          // manual or off — still refresh and handle auto-remove, just don't add next episode
+          if (_selectedLibraryId != null && !isOffline) {
+            loadPersonalizedView(force: true);
+          }
+          PlayerSettings.getWhenFinished().then((mode) {
+            if (mode == 'auto_remove') removeFromAbsorbing(itemId);
+          });
         }
-        PlayerSettings.getWhenFinished().then((mode) {
-          if (mode == 'auto_remove') removeFromAbsorbing(itemId);
-        });
       });
       return; // skip the default refresh below — handled above
     }
@@ -1458,9 +1534,9 @@ class LibraryProvider extends ChangeNotifier {
       await _saveManualAbsorbing();
       notifyListeners();
 
-      // Auto-play the next episode if the setting is enabled.
+      // Auto-play the next episode if auto_next mode is enabled.
       // Skip if local auto-advance already started playback.
-      if (await PlayerSettings.getAutoPlayNextPodcast() && _api != null &&
+      if ((await PlayerSettings.getQueueMode()) == 'auto_next' && _api != null &&
           !AudioPlayerService().isPlaying) {
         final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
         final title = metadata['title'] as String? ?? '';
@@ -1480,6 +1556,73 @@ class LibraryProvider extends ChangeNotifier {
         );
       }
     } catch (_) {}
+  }
+
+  /// Manual queue auto-advance: scan absorbing list from after the finished
+  /// item, find the first non-finished card, and play it.
+  void _manualQueueAdvance(String finishedKey) async {
+    if (AudioPlayerService.wasNoisyPause) return;
+
+    final merged = await PlayerSettings.getMergeAbsorbingLibraries();
+
+    // Determine the finished item's library so we only advance within the same library
+    final finishedCached = _absorbingItemCache[finishedKey];
+    final finishedLibId = finishedCached?['libraryId'] as String?;
+
+    final finishedIdx = _absorbingBookIds.indexOf(finishedKey);
+    final startIdx = finishedIdx >= 0 ? finishedIdx + 1 : 0;
+
+    for (int i = startIdx; i < _absorbingBookIds.length; i++) {
+      final key = _absorbingBookIds[i];
+      if (isItemFinishedByKey(key)) continue;
+
+      final cached = _absorbingItemCache[key];
+      if (cached == null) continue;
+
+      // Stay within the same library unless merge mode is on
+      if (!merged && finishedLibId != null) {
+        final candidateLibId = cached['libraryId'] as String?;
+        if (candidateLibId != null && candidateLibId != finishedLibId) continue;
+      }
+
+      final media = cached['media'] as Map<String, dynamic>? ?? {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+      final title = metadata['title'] as String? ?? '';
+      final author = metadata['authorName'] as String? ?? '';
+
+      if (key.length > 36) {
+        final showId = key.substring(0, 36);
+        final epId = key.substring(37);
+        final ep = cached['recentEpisode'] as Map<String, dynamic>?;
+        final epDuration = (ep?['duration'] as num?)?.toDouble()
+            ?? (media['duration'] as num?)?.toDouble() ?? 0;
+        AudioPlayerService().playItem(
+          api: _api ?? ApiService(baseUrl: '', token: ''),
+          itemId: showId,
+          title: title,
+          author: author,
+          coverUrl: getCoverUrl(showId),
+          totalDuration: epDuration,
+          chapters: [],
+          episodeId: epId,
+          episodeTitle: ep?['title'] as String?,
+        );
+      } else {
+        final duration = (media['duration'] as num?)?.toDouble() ?? 0;
+        final chapters = media['chapters'] as List<dynamic>? ?? [];
+        AudioPlayerService().playItem(
+          api: _api ?? ApiService(baseUrl: '', token: ''),
+          itemId: key,
+          title: title,
+          author: author,
+          coverUrl: getCoverUrl(key),
+          totalDuration: duration,
+          chapters: chapters,
+        );
+      }
+      return; // started the next item
+    }
+    // All remaining cards are finished — playback stops naturally.
   }
 
   /// Offline auto-advance: find the next downloaded book in series or next
@@ -1541,8 +1684,8 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   void _autoAdvanceOfflineBook(String finishedBookId) {
-    PlayerSettings.getAutoPlayNextBook().then((autoPlay) {
-      if (!autoPlay) return;
+    PlayerSettings.getQueueMode().then((mode) {
+      if (mode != 'auto_next') return;
       if (AudioPlayerService.wasNoisyPause) return;
 
       final finished = _itemDataWithSeries(finishedBookId);
@@ -1594,8 +1737,8 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   void _autoAdvanceOfflinePodcast(String finishedKey) {
-    PlayerSettings.getAutoPlayNextPodcast().then((autoPlay) {
-      if (!autoPlay) return;
+    PlayerSettings.getQueueMode().then((mode) {
+      if (mode != 'auto_next') return;
       if (AudioPlayerService.wasNoisyPause) return;
 
       final showId = finishedKey.substring(0, 36);
@@ -1743,6 +1886,96 @@ class LibraryProvider extends ChangeNotifier {
     }
   }
 
+  /// Auto-download the next N items from the absorbing queue when manual
+  /// queue mode is active and queueAutoDownload is enabled.
+  void _checkQueueAutoDownloads(String playingKey) async {
+    if (_api == null || isOffline) return;
+    final queueMode = await PlayerSettings.getQueueMode();
+    if (queueMode != 'manual') return;
+    final enabled = await PlayerSettings.getQueueAutoDownload();
+    if (!enabled) return;
+    final merged = await PlayerSettings.getMergeAbsorbingLibraries();
+
+    final wifiOnly = await PlayerSettings.getWifiOnlyDownloads();
+    if (wifiOnly) {
+      final connectivity = await Connectivity().checkConnectivity();
+      if (!connectivity.contains(ConnectivityResult.wifi)) return;
+    }
+
+    final count = await PlayerSettings.getRollingDownloadCount();
+    final dl = DownloadService();
+    int queued = 0;
+    int newDownloads = 0;
+
+    final playingIdx = _absorbingBookIds.indexOf(playingKey);
+    final startIdx = playingIdx >= 0 ? playingIdx : 0;
+
+    final playingCached = _absorbingItemCache[playingKey];
+    final playingLibId = playingCached?['libraryId'] as String?;
+
+    for (int i = startIdx; i < _absorbingBookIds.length && queued < count; i++) {
+      final key = _absorbingBookIds[i];
+      if (isItemFinishedByKey(key)) continue;
+
+      final cached = _absorbingItemCache[key];
+      if (cached == null) continue;
+
+      // Stay within the same library unless merge mode is on
+      if (!merged && playingLibId != null) {
+        final candidateLibId = cached['libraryId'] as String?;
+        if (candidateLibId != null && candidateLibId != playingLibId) continue;
+      }
+
+      if (dl.isDownloaded(key) || dl.isDownloading(key)) {
+        queued++;
+        continue;
+      }
+
+      final media = cached['media'] as Map<String, dynamic>? ?? {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+      final title = metadata['title'] as String? ?? '';
+      final author = metadata['authorName'] as String? ?? '';
+
+      if (key.length > 36) {
+        final showId = key.substring(0, 36);
+        final epId = key.substring(37);
+        final ep = cached['recentEpisode'] as Map<String, dynamic>?;
+        dl.downloadItem(
+          api: _api!,
+          itemId: key,
+          title: ep?['title'] as String? ?? 'Episode',
+          author: title,
+          coverUrl: getCoverUrl(showId),
+          episodeId: epId,
+        );
+      } else {
+        dl.downloadItem(
+          api: _api!,
+          itemId: key,
+          title: title,
+          author: author,
+          coverUrl: getCoverUrl(key),
+        );
+      }
+      queued++;
+      newDownloads++;
+    }
+
+    if (newDownloads > 0) {
+      _showRollingSnackBar('Queue: downloading $newDownloads item${newDownloads == 1 ? '' : 's'}');
+    }
+  }
+
+  /// On WiFi restore or library load, trigger queue auto-downloads for
+  /// whatever is currently playing.
+  void _catchUpQueueAutoDownloads() {
+    final itemId = AudioPlayerService().currentItemId;
+    if (itemId == null) return;
+    final epId = AudioPlayerService().currentEpisodeId;
+    final key = epId != null ? '$itemId-$epId' : itemId;
+    _checkQueueAutoDownloads(key);
+  }
+
   /// Download the next [count]-1 books in the same series as [bookId].
   Future<void> _rollingDownloadBook(String bookId, int count) async {
     // Try local cache first, then fetch from server if series info is missing
@@ -1766,7 +1999,8 @@ class LibraryProvider extends ChangeNotifier {
     int newDownloads = 0;
 
     // Download the currently-playing book too if not already downloaded
-    if (!dl.isDownloaded(bookId) && !dl.isDownloading(bookId)) {
+    final anchorFinished = _progressMap[bookId]?['isFinished'] == true;
+    if (!anchorFinished && !dl.isDownloaded(bookId) && !dl.isDownloading(bookId)) {
       final media = data!['media'] as Map<String, dynamic>? ?? {};
       final md = media['metadata'] as Map<String, dynamic>? ?? {};
       dl.downloadItem(
@@ -1778,7 +2012,8 @@ class LibraryProvider extends ChangeNotifier {
       );
       newDownloads++;
     }
-    queued++; // Count current book toward the window
+    // Don't count finished anchor toward the window so it slides forward
+    if (!anchorFinished) queued++;
 
     for (final book in books) {
       if (queued >= count) break;
@@ -1855,7 +2090,8 @@ class LibraryProvider extends ChangeNotifier {
     int newDownloads = 0;
 
     // Download the currently-playing episode too if not already downloaded
-    if (!dl.isDownloaded(compoundKey) && !dl.isDownloading(compoundKey)) {
+    final anchorFinished = _progressMap[compoundKey]?['isFinished'] == true;
+    if (!anchorFinished && !dl.isDownloaded(compoundKey) && !dl.isDownloading(compoundKey)) {
       final curEp = episodes[currentIdx] as Map<String, dynamic>;
       dl.downloadItem(
         api: _api!,
@@ -1867,7 +2103,8 @@ class LibraryProvider extends ChangeNotifier {
       );
       newDownloads++;
     }
-    queued++; // Count current episode toward the window
+    // Don't count finished anchor toward the window so it slides forward
+    if (!anchorFinished) queued++;
 
     for (int i = currentIdx + 1; i < episodes.length && queued < count; i++) {
       final ep = episodes[i] as Map<String, dynamic>;
@@ -1912,5 +2149,16 @@ class LibraryProvider extends ChangeNotifier {
   bool isOnAbsorbingList(String key) {
     if (_manualAbsorbRemoves.contains(key)) return false;
     return _absorbingBookIds.contains(key);
+  }
+
+  /// Check if an absorbing item (by its key) is finished.
+  bool isItemFinishedByKey(String key) {
+    if (_locallyFinishedItems.contains(key)) return true;
+    if (key.length > 36) {
+      final showId = key.substring(0, 36);
+      final epId = key.substring(37);
+      return getEpisodeProgressData(showId, epId)?['isFinished'] == true;
+    }
+    return getProgressData(key)?['isFinished'] == true;
   }
 }

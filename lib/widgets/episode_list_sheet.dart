@@ -886,11 +886,17 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
               _sheetBtn(icon: Icons.restart_alt_rounded,
                 label: 'Reset Progress', onTap: () => _resetProgress(context)),
             ],
-            // Remove from Absorbing
-            if (lib.isOnAbsorbingList(dlKey)) ...[
-              const SizedBox(height: 8),
-              _sheetBtn(icon: Icons.remove_circle_outline_rounded,
-                label: 'Remove from Absorbing', onTap: () async {
+            // Add / Remove from Absorbing
+            const SizedBox(height: 8),
+            _sheetBtn(
+              icon: lib.isOnAbsorbingList(dlKey)
+                ? Icons.remove_circle_outline_rounded
+                : Icons.add_circle_outline_rounded,
+              label: lib.isOnAbsorbingList(dlKey)
+                ? 'Remove from Absorbing'
+                : 'Add to Absorbing',
+              onTap: () async {
+                if (lib.isOnAbsorbingList(dlKey)) {
                   await lib.removeFromAbsorbing(dlKey);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -899,8 +905,23 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
                       behavior: SnackBarBehavior.floating,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
                   }
-                }),
-            ],
+                } else {
+                  await lib.addToAbsorbingQueue(dlKey);
+                  // Populate cache so the absorbing card can render this episode
+                  final cached = Map<String, dynamic>.from(widget.podcastItem);
+                  cached['recentEpisode'] = Map<String, dynamic>.from(widget.episode);
+                  cached['_absorbingKey'] = dlKey;
+                  lib.absorbingItemCache[dlKey] = cached;
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      duration: const Duration(seconds: 3),
+                      content: const Text('Added to Absorbing'),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+                  }
+                }
+              },
+            ),
 
             // Metadata chips
             const SizedBox(height: 16),
