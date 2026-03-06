@@ -47,7 +47,11 @@ void main() async {
   // AA launches it), every millisecond of delay here is time the user
   // stares at a loading spinner.  Downloads must be loaded before the
   // handler so getChildren() can serve the browse tree immediately.
-  await DownloadService().init();
+  try {
+    await DownloadService().init().timeout(const Duration(seconds: 8));
+  } catch (e) {
+    debugPrint('[Main] DownloadService.init timed out or failed: $e');
+  }
   // Timeout guards against AudioService.init() hanging when Android killed
   // the app process but kept the MediaBrowserService alive (e.g. Bluetooth
   // or Android Auto was connected).  If it times out the app still launches

@@ -1813,7 +1813,6 @@ class AudioPlayerService extends ChangeNotifier {
       final pos = position;
       final posSec = pos.inMilliseconds / 1000.0;
       if (posSec <= 0) return;
-      debugPrint('[Player] Background save: ${posSec.toStringAsFixed(1)}s');
       await _saveProgressLocal(pos);
       // Sync to server through the active session
       if (!_isOfflineMode && _playbackSessionId != null) {

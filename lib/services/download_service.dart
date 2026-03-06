@@ -268,7 +268,7 @@ class DownloadService extends ChangeNotifier {
           if (info.status == DownloadStatus.downloaded) {
             bool allExist = true;
             for (final path in info.localPaths) {
-              if (!File(path).existsSync()) {
+              if (!await File(path).exists()) {
                 allExist = false;
                 break;
               }
@@ -291,11 +291,11 @@ class DownloadService extends ChangeNotifier {
             debugPrint('[Download] Cleaning up orphaned entry: $id');
             try {
               final dir = Directory('$basePath/$id');
-              if (dir.existsSync()) dir.deleteSync(recursive: true);
+              if (await dir.exists()) await dir.delete(recursive: true);
             } catch (_) {}
             try {
               final coverDir = Directory('$internalBase/$id');
-              if (coverDir.existsSync()) coverDir.deleteSync(recursive: true);
+              if (await coverDir.exists()) await coverDir.delete(recursive: true);
             } catch (_) {}
           }
         }
