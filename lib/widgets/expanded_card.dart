@@ -1272,17 +1272,22 @@ class _ExpandedCardState extends State<ExpandedCard> {
                     ? cast.castPosition.inMilliseconds / 1000.0
                     : (_isActive ? widget.player.position.inMilliseconds / 1000.0 : 0.0);
                 final isCurrent = _isPlaybackActive && pos >= start && pos < end;
+                final isFinished = _isPlaybackActive && pos >= end;
                 final pct = totalDur > 0 ? (end / totalDur * 100).round() : 0;
+                final cs = Theme.of(context).colorScheme;
                 return ListTile(
                   dense: true, selected: isCurrent,
                   selectedTileColor: accent.withValues(alpha: 0.1),
-                  leading: SizedBox(width: 28, child: Text('${i + 1}', textAlign: TextAlign.center,
-                    style: tt.labelMedium?.copyWith(fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w400, color: isCurrent ? accent : Theme.of(context).colorScheme.onSurfaceVariant))),
+                  leading: SizedBox(width: 28, child: isFinished
+                    ? Icon(Icons.check_rounded, size: 16, color: cs.onSurfaceVariant.withValues(alpha: 0.4))
+                    : Text('${i + 1}', textAlign: TextAlign.center,
+                        style: tt.labelMedium?.copyWith(fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w400, color: isCurrent ? accent : cs.onSurfaceVariant))),
                   title: Text(chTitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: tt.bodyMedium?.copyWith(fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w400, color: isCurrent ? Theme.of(context).colorScheme.onSurface : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7))),
+                    style: tt.bodyMedium?.copyWith(fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w400,
+                      color: isCurrent ? cs.onSurface : isFinished ? cs.onSurface.withValues(alpha: 0.4) : cs.onSurface.withValues(alpha: 0.7))),
                   trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                     Text('$pct%', style: tt.labelSmall?.copyWith(
-                      color: isCurrent ? accent.withValues(alpha: 0.7) : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.24), fontSize: 10, fontWeight: FontWeight.w600)),
+                      color: isCurrent ? accent.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.24), fontSize: 10, fontWeight: FontWeight.w600)),
                     const SizedBox(width: 8),
                     Text(_fmtDur(end - start), style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   ]),
