@@ -54,6 +54,7 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
   bool _isLoading = true;
   bool _isDownloadingAll = false;
   bool _autoDownloadEnabled = false;
+  bool _newestFirst = true;
 
   String get _itemId => widget.podcastItem['id'] as String? ?? '';
 
@@ -114,15 +115,22 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
     }
   }
 
-  /// Sort episodes newest first by publishedAt.
+  /// Sort episodes by publishedAt according to current sort order.
   List<dynamic> _sortEpisodes(List<dynamic> episodes) {
     final sorted = List<dynamic>.from(episodes);
     sorted.sort((a, b) {
       final aTime = (a['publishedAt'] as num?)?.toInt() ?? 0;
       final bTime = (b['publishedAt'] as num?)?.toInt() ?? 0;
-      return bTime.compareTo(aTime); // newest first
+      return _newestFirst ? bTime.compareTo(aTime) : aTime.compareTo(bTime);
     });
     return sorted;
+  }
+
+  void _toggleSortOrder() {
+    setState(() {
+      _newestFirst = !_newestFirst;
+      _episodes = _sortEpisodes(_episodes);
+    });
   }
 
   Future<void> _playEpisode(Map<String, dynamic> episode) async {
@@ -398,9 +406,24 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
 
               // Episodes section header
               const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Episodes', style: tt.titleSmall?.copyWith(color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
+              Row(
+                children: [
+                  Text('Episodes', style: tt.titleSmall?.copyWith(color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: _toggleSortOrder,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_newestFirst ? 'Newest' : 'Oldest',
+                          style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.6))),
+                        const SizedBox(width: 2),
+                        Icon(_newestFirst ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                          size: 14, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 4),
             ])),
@@ -1052,6 +1075,8 @@ class _EpisodeRowState extends State<_EpisodeRow> {
     final episodeId = ep['id'] as String? ?? '';
     final duration = (ep['duration'] as num?)?.toDouble() ?? 0;
     final publishedAt = (ep['publishedAt'] as num?)?.toInt() ?? 0;
+    final episodeNumber = ep['episode'] as String?;
+    final season = ep['season'] as String?;
 
     // Progress
     final progress = lib.getEpisodeProgress(widget.itemId, episodeId);
@@ -1139,6 +1164,16 @@ class _EpisodeRowState extends State<_EpisodeRow> {
                         ),
                         maxLines: 2, overflow: TextOverflow.ellipsis,
                       ),
+                      if (episodeNumber != null || season != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          [
+                            if (season != null) 'S$season',
+                            if (episodeNumber != null) 'E$episodeNumber',
+                          ].join(' '),
+                          style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                        ),
+                      ],
                       const SizedBox(height: 4),
                       Row(
                         children: [

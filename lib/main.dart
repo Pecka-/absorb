@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
+
 import 'package:device_info_plus/device_info_plus.dart';
 
 import 'providers/auth_provider.dart';
@@ -40,27 +42,11 @@ ThemeMode parseThemeMode(String value) {
 }
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  // Register the audio handler FIRST — Android Auto's MediaBrowserService
-  // blocks until the handler exists.  On cold start (app force-closed,
-  // AA launches it), every millisecond of delay here is time the user
-  // stares at a loading spinner.  Downloads must be loaded before the
-  // handler so getChildren() can serve the browse tree immediately.
-  try {
-    await DownloadService().init().timeout(const Duration(seconds: 8));
-  } catch (e) {
-    debugPrint('[Main] DownloadService.init timed out or failed: $e');
-  }
-  // Timeout guards against AudioService.init() hanging when Android killed
-  // the app process but kept the MediaBrowserService alive (e.g. Bluetooth
-  // or Android Auto was connected).  If it times out the app still launches
-  // and _initServices() in AuthGate will retry.
-  try {
-    await AudioPlayerService.init().timeout(const Duration(seconds: 8));
-  } catch (e) {
-    debugPrint('[Main] AudioPlayerService.init timed out or failed: $e');
-  }
+  // Only do the bare minimum before runApp() so the UI appears fast.
+  // Everything else moves to AuthGate._initServices().
 
   // Lock to portrait — no landscape support
   await SystemChrome.setPreferredOrientations([
@@ -68,26 +54,9 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Load saved theme preference
+  // Load saved theme preference so we render the correct theme immediately
   final savedTheme = await PlayerSettings.getThemeMode();
   themeNotifier.value = parseThemeMode(savedTheme);
-
-  // Migrate old auto-play booleans → unified queueMode (one-time, no-op after first run)
-  await PlayerSettings.migrateQueueMode();
-
-  // Load device info for server identification
-  await ApiService.initDeviceId();
-  await ApiService.initVersion();
-  try {
-    final info = await DeviceInfoPlugin().androidInfo;
-    ApiService.deviceManufacturer = info.manufacturer;
-    ApiService.deviceModel = info.model;
-    ApiService.deviceSdkInt = info.version.sdkInt;
-  } catch (_) {}
-
-  // Initialize log service (must be before other services so debugPrint is captured)
-  final loggingEnabled = await PlayerSettings.getLoggingEnabled();
-  await LogService().init(loggingEnabled);
 
   // Capture Flutter framework errors (widget build failures, etc.)
   FlutterError.onError = (details) {
@@ -101,8 +70,8 @@ void main() async {
     return true;
   };
 
-  // Initialize download notification service
-  await DownloadNotificationService().init();
+  // Remove native splash — Flutter will render the AuthGate splash immediately
+  FlutterNativeSplash.remove();
 
   runApp(
     MultiProvider(
@@ -315,41 +284,72 @@ class _AuthGateState extends State<AuthGate> {
       context.read<AuthProvider>().tryRestoreSession();
     }
 
-    // Audio handler already initialized in main() — this is a no-op
-    // but kept for safety in case main() init failed.
+    // Migrate old auto-play booleans → unified queueMode (one-time, no-op after first run)
+    await PlayerSettings.migrateQueueMode();
+
+    // Load device info for server identification
+    await ApiService.initDeviceId();
+    await ApiService.initVersion();
     try {
-      await AudioPlayerService.init();
+      final info = await DeviceInfoPlugin().androidInfo;
+      ApiService.deviceManufacturer = info.manufacturer;
+      ApiService.deviceModel = info.model;
+      ApiService.deviceSdkInt = info.version.sdkInt;
+    } catch (_) {}
+
+    // Initialize log service (must be before other services so debugPrint is captured)
+    try {
+      final loggingEnabled = await PlayerSettings.getLoggingEnabled();
+      await LogService().init(loggingEnabled);
+    } catch (_) {}
+
+    // Downloads must be loaded before the audio handler so getChildren()
+    // can serve the Android Auto browse tree immediately.
+    try {
+      await DownloadService().init().timeout(const Duration(seconds: 8));
     } catch (e) {
-      debugPrint('AudioService init failed: $e');
+      debugPrint('[Init] DownloadService.init timed out or failed: $e');
+    }
+
+    // Timeout guards against AudioService.init() hanging when Android killed
+    // the app process but kept the MediaBrowserService alive.
+    try {
+      await AudioPlayerService.init().timeout(const Duration(seconds: 8));
+    } catch (e) {
+      debugPrint('[Init] AudioPlayerService.init timed out or failed: $e');
+    }
+
+    try {
+      await DownloadNotificationService().init();
+    } catch (e) {
+      debugPrint('[Init] DownloadNotificationService failed: $e');
     }
 
     try {
       await Permission.notification.request();
     } catch (e) {
-      debugPrint('Permission request failed: $e');
+      debugPrint('[Init] Permission request failed: $e');
     }
 
     // Initialize Chromecast
     try {
       await ChromecastService().init();
     } catch (e) {
-      debugPrint('Chromecast init failed: $e');
+      debugPrint('[Init] Chromecast init failed: $e');
     }
 
     // Initialize download tracker and progress sync
     try {
       await UserAccountService().init();
-      await DownloadService().init();
       await ProgressSyncService().init();
       await EqualizerService().init();
       await SleepTimerService().loadAutoSleepSettings();
       // Pre-populate Android Auto browse tree in background.
-      // Do not block app startup on Android Auto server refresh.
       Future.microtask(() => AndroidAutoService().refresh());
       // Initialize homescreen widget
       await HomeWidgetService().init();
     } catch (e) {
-      debugPrint('Service init failed: $e');
+      debugPrint('[Init] Service init failed: $e');
     }
   }
 

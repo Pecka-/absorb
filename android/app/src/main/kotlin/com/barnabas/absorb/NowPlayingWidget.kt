@@ -16,6 +16,7 @@ import android.graphics.RectF
 import android.view.KeyEvent
 import android.view.View
 import android.net.Uri
+import android.os.Build
 import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetPlugin
@@ -104,6 +105,12 @@ class NowPlayingWidget : AppWidgetProvider() {
         ) {
             val widgetData = HomeWidgetPlugin.getData(context)
             val views = RemoteViews(context.packageName, R.layout.now_playing_widget)
+
+            // OnePlus launchers add their own generous widget padding,
+            // so zero ours out to avoid double-padding.
+            if (Build.MANUFACTURER.equals("OnePlus", ignoreCase = true)) {
+                views.setViewPadding(R.id.widget_outer, 0, 0, 0, 0)
+            }
 
             val hasBook = widgetData.getBoolean("widget_has_book", false)
             val title = widgetData.getString("widget_title", null)

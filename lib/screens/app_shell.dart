@@ -38,7 +38,7 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver, TickerProviderStateMixin {
   static _AppShellState? _instance;
 
   // Tabs: 0=Home, 1=Library, 2=Absorbing (default), 3=Stats, 4=Settings
@@ -77,8 +77,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       return;
     }
     _ensurePageBuilt(index);
-    setState(() {
-      _currentIndex = index;
+    _fadeController.reverse().then((_) {
+      if (!mounted) return;
+      setState(() {
+        _currentIndex = index;
+      });
+      _fadeController.forward();
     });
   }
 
@@ -103,6 +107,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
+  late final AnimationController _fadeController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+    value: 1.0,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -120,6 +130,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _fadeController.dispose();
     _player.removeListener(_onPlayerChanged);
     _cast.removeListener(_onCastChanged);
     if (_instance == this) _instance = null;
@@ -267,11 +278,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _switchToAbsorbing();
       },
       child: Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: List<Widget>.generate(
-          _pages.length,
-          (i) => _pages[i] ?? const SizedBox.shrink(),
+      body: FadeTransition(
+        opacity: _fadeController,
+        child: IndexedStack(
+          index: _currentIndex,
+          children: List<Widget>.generate(
+            _pages.length,
+            (i) => _pages[i] ?? const SizedBox.shrink(),
+          ),
         ),
       ),
       bottomNavigationBar: Column(
