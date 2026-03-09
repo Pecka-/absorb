@@ -43,20 +43,27 @@ ThemeMode parseThemeMode(String value) {
 
 void main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
-  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  // Only do the bare minimum before runApp() so the UI appears fast.
-  // Everything else moves to AuthGate._initServices().
+  // These calls use platform channels that require an Activity. When Android
+  // Auto cold-starts the app for the MediaBrowserService, no Activity exists
+  // and these calls can hang forever - blocking runApp() and freezing on the
+  // splash screen. Wrap in try-catch with a timeout so we always reach runApp().
+  try {
+    FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+  } catch (_) {}
 
-  // Lock to portrait — no landscape support
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  try {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]).timeout(const Duration(seconds: 2));
+  } catch (_) {}
 
   // Load saved theme preference so we render the correct theme immediately
-  final savedTheme = await PlayerSettings.getThemeMode();
-  themeNotifier.value = parseThemeMode(savedTheme);
+  try {
+    final savedTheme = await PlayerSettings.getThemeMode();
+    themeNotifier.value = parseThemeMode(savedTheme);
+  } catch (_) {}
 
   // Capture Flutter framework errors (widget build failures, etc.)
   FlutterError.onError = (details) {
@@ -71,7 +78,9 @@ void main() async {
   };
 
   // Remove native splash — Flutter will render the AuthGate splash immediately
-  FlutterNativeSplash.remove();
+  try {
+    FlutterNativeSplash.remove();
+  } catch (_) {}
 
   runApp(
     MultiProvider(
@@ -278,6 +287,16 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _initServices() async {
+    // Initialize log service FIRST so all debugPrint calls are captured in the
+    // log file. This is critical for diagnosing startup freezes in production.
+    try {
+      final loggingEnabled = await PlayerSettings.getLoggingEnabled();
+      await LogService().init(loggingEnabled);
+    } catch (_) {}
+
+    final sw = Stopwatch()..start();
+    debugPrint('[Init] _initServices started');
+
     // Start auth restoration immediately — it doesn't depend on audio/cast/
     // download services and must not be blocked by a hanging service init.
     if (mounted) {
@@ -285,9 +304,11 @@ class _AuthGateState extends State<AuthGate> {
     }
 
     // Migrate old auto-play booleans → unified queueMode (one-time, no-op after first run)
+    debugPrint('[Init] migrateQueueMode... (${sw.elapsedMilliseconds}ms)');
     await PlayerSettings.migrateQueueMode();
 
     // Load device info for server identification
+    debugPrint('[Init] device info... (${sw.elapsedMilliseconds}ms)');
     await ApiService.initDeviceId();
     await ApiService.initVersion();
     try {
@@ -297,27 +318,25 @@ class _AuthGateState extends State<AuthGate> {
       ApiService.deviceSdkInt = info.version.sdkInt;
     } catch (_) {}
 
-    // Initialize log service (must be before other services so debugPrint is captured)
-    try {
-      final loggingEnabled = await PlayerSettings.getLoggingEnabled();
-      await LogService().init(loggingEnabled);
-    } catch (_) {}
-
     // Downloads must be loaded before the audio handler so getChildren()
     // can serve the Android Auto browse tree immediately.
+    debugPrint('[Init] DownloadService... (${sw.elapsedMilliseconds}ms)');
     try {
       await DownloadService().init().timeout(const Duration(seconds: 8));
     } catch (e) {
       debugPrint('[Init] DownloadService.init timed out or failed: $e');
     }
+    debugPrint('[Init] DownloadService done (${sw.elapsedMilliseconds}ms)');
 
     // Timeout guards against AudioService.init() hanging when Android killed
     // the app process but kept the MediaBrowserService alive.
+    debugPrint('[Init] AudioPlayerService... (${sw.elapsedMilliseconds}ms)');
     try {
       await AudioPlayerService.init().timeout(const Duration(seconds: 8));
     } catch (e) {
       debugPrint('[Init] AudioPlayerService.init timed out or failed: $e');
     }
+    debugPrint('[Init] AudioPlayerService done (${sw.elapsedMilliseconds}ms)');
 
     try {
       await DownloadNotificationService().init();
@@ -339,6 +358,7 @@ class _AuthGateState extends State<AuthGate> {
     }
 
     // Initialize download tracker and progress sync
+    debugPrint('[Init] remaining services... (${sw.elapsedMilliseconds}ms)');
     try {
       await UserAccountService().init();
       await ProgressSyncService().init();
@@ -351,6 +371,7 @@ class _AuthGateState extends State<AuthGate> {
     } catch (e) {
       debugPrint('[Init] Service init failed: $e');
     }
+    debugPrint('[Init] _initServices complete (${sw.elapsedMilliseconds}ms)');
   }
 
   @override

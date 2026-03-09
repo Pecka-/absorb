@@ -52,16 +52,22 @@ class AuthProvider extends ChangeNotifier {
   /// Try to restore a saved session from SharedPreferences.
   /// If the server is unreachable, still restore credentials so offline mode works.
   Future<void> tryRestoreSession() async {
+    final sw = Stopwatch()..start();
+    debugPrint('[Auth] tryRestoreSession started');
     _isLoading = true;
     _serverReachable = true;
     notifyListeners();
 
     try {
+      debugPrint('[Auth] getting SharedPreferences...');
       final prefs = await SharedPreferences.getInstance();
+      debugPrint('[Auth] SharedPreferences loaded (${sw.elapsedMilliseconds}ms)');
       final savedUrl = prefs.getString('server_url');
       final savedToken = prefs.getString('token');
       final savedUsername = prefs.getString('username');
       final savedLibraryId = prefs.getString('default_library_id');
+
+      debugPrint('[Auth] saved credentials: url=${savedUrl != null}, token=${savedToken != null}');
 
       if (savedUrl != null && savedToken != null) {
         // Always restore credentials so we can at least go offline
@@ -80,26 +86,32 @@ class AuthProvider extends ChangeNotifier {
         }
 
         // Check if server is actually reachable
+        debugPrint('[Auth] pinging server... (${sw.elapsedMilliseconds}ms)');
         final reachable = await ApiService.pingServer(savedUrl, customHeaders: _customHeaders);
         _serverReachable = reachable;
+        debugPrint('[Auth] ping result: reachable=$reachable (${sw.elapsedMilliseconds}ms)');
 
         // Fetch full user info (needed for isAdmin, permissions, etc.)
         if (reachable) {
           try {
+            debugPrint('[Auth] fetching /me... (${sw.elapsedMilliseconds}ms)');
             final api = ApiService(baseUrl: savedUrl, token: savedToken, customHeaders: _customHeaders);
             final me = await api.getMe();
             if (me != null) {
               _userJson = me;
               _userId = me['id'] as String?;
             }
+            debugPrint('[Auth] /me done (${sw.elapsedMilliseconds}ms)');
           } catch (_) {}
         }
       }
-    } catch (_) {
+    } catch (e) {
       // Restore failed — but if we already set credentials, keep them
+      debugPrint('[Auth] tryRestoreSession error: $e (${sw.elapsedMilliseconds}ms)');
       _serverReachable = false;
     }
 
+    debugPrint('[Auth] tryRestoreSession done, isAuthenticated=$isAuthenticated (${sw.elapsedMilliseconds}ms)');
     _isLoading = false;
     notifyListeners();
   }
