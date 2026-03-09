@@ -653,12 +653,20 @@ class LibraryProvider extends ChangeNotifier {
     // Rebuild progress map from updated user data
     final progressList = data['mediaProgress'] as List<dynamic>?;
     if (progressList != null) {
+      final player = AudioPlayerService();
+      final playingKey = player.currentEpisodeId != null
+          ? '${player.currentItemId}-${player.currentEpisodeId}'
+          : player.currentItemId;
       for (final mp in progressList) {
         if (mp is Map<String, dynamic>) {
           final itemId = mp['libraryItemId'] as String?;
           final episodeId = mp['episodeId'] as String?;
           if (itemId != null) {
             final key = episodeId != null ? '$itemId-$episodeId' : itemId;
+            // Don't let stale server data overwrite a local mark-finished
+            if (_locallyFinishedItems.contains(key) && mp['isFinished'] != true) continue;
+            // Don't overwrite progress for the currently playing item
+            if (key == playingKey && player.hasBook) continue;
             _progressMap[key] = mp;
             _localProgressOverrides.remove(key);
           }
