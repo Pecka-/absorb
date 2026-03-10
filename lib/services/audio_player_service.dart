@@ -191,6 +191,18 @@ class PlayerSettings {
   static Future<String> getLibraryGenreFilter() => _get('libraryGenreFilter', '');
   static Future<void> setLibraryGenreFilter(String? value) => _set('libraryGenreFilter', value ?? '');
 
+  static Future<String> getSeriesSort() => _get('seriesSort', 'alphabetical');
+  static Future<void> setSeriesSort(String value) => _set('seriesSort', value);
+
+  static Future<bool> getSeriesSortAsc() => _get('seriesSortAsc', true);
+  static Future<void> setSeriesSortAsc(bool value) => _set('seriesSortAsc', value);
+
+  static Future<String> getAuthorSort() => _get('authorSort', 'alphabetical');
+  static Future<void> setAuthorSort(String value) => _set('authorSort', value);
+
+  static Future<bool> getAuthorSortAsc() => _get('authorSortAsc', true);
+  static Future<void> setAuthorSortAsc(bool value) => _set('authorSortAsc', value);
+
   static Future<bool> getShowGoodreadsButton() => _get('showGoodreadsButton', false);
   static Future<void> setShowGoodreadsButton(bool value) => _set('showGoodreadsButton', value);
 

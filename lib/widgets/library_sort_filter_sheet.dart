@@ -2,6 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../screens/library_screen.dart';
 
+/// Which library tab the sort/filter sheet is being shown for.
+enum LibraryTab { library, series, authors }
+
 // ═══════════════════════════════════════════════════════════════
 // Sort & Filter bottom sheet with tabs
 // ═══════════════════════════════════════════════════════════════
@@ -21,6 +24,7 @@ class SortFilterSheet extends StatefulWidget {
   final bool collapseSeries;
   final ValueChanged<bool> onCollapseSeriesChanged;
   final bool isPodcastLibrary;
+  final LibraryTab libraryTab;
 
   const SortFilterSheet({
     super.key,
@@ -30,8 +34,9 @@ class SortFilterSheet extends StatefulWidget {
     required this.cs, required this.tt,
     required this.onSortChanged, required this.onSortDirectionToggled,
     required this.onFilterChanged, required this.onClearFilter,
-    required this.collapseSeries, required this.onCollapseSeriesChanged,
+    this.collapseSeries = false, required this.onCollapseSeriesChanged,
     required this.isPodcastLibrary,
+    this.libraryTab = LibraryTab.library,
   });
 
   @override
@@ -41,11 +46,19 @@ class SortFilterSheet extends StatefulWidget {
 class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
   bool _genreExpanded = false;
+  late bool _collapseSeries;
+
+  bool get _showFilterTab => widget.libraryTab == LibraryTab.library;
 
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this, initialIndex: widget.initialTab);
+    _collapseSeries = widget.collapseSeries;
+    final tabCount = _showFilterTab ? 2 : 1;
+    _tabCtrl = TabController(
+      length: tabCount, vsync: this,
+      initialIndex: _showFilterTab ? widget.initialTab.clamp(0, 1) : 0,
+    );
     if (widget.currentFilter == LibraryFilter.genre) _genreExpanded = true;
   }
 
@@ -67,23 +80,32 @@ class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProv
           Center(child: Container(width: 40, height: 4,
             decoration: BoxDecoration(color: cs.onSurfaceVariant.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2)))),
           const SizedBox(height: 16),
-          TabBar(
-            controller: _tabCtrl,
-            labelColor: cs.primary, unselectedLabelColor: cs.onSurfaceVariant,
-            indicatorColor: cs.primary, indicatorSize: TabBarIndicatorSize.label,
-            dividerColor: Colors.transparent,
-            tabs: [
-              Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.sort_rounded, size: 18), const SizedBox(width: 6), const Text('Sort')])),
-              Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.filter_list_rounded, size: 18), const SizedBox(width: 6),
-                Text(widget.currentFilter != LibraryFilter.none ? 'Filter ●' : 'Filter')])),
-            ],
-          ),
+          if (_showFilterTab)
+            TabBar(
+              controller: _tabCtrl,
+              labelColor: cs.primary, unselectedLabelColor: cs.onSurfaceVariant,
+              indicatorColor: cs.primary, indicatorSize: TabBarIndicatorSize.label,
+              dividerColor: Colors.transparent,
+              tabs: [
+                Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.sort_rounded, size: 18), const SizedBox(width: 6), const Text('Sort')])),
+                Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.filter_list_rounded, size: 18), const SizedBox(width: 6),
+                  Text(widget.currentFilter != LibraryFilter.none ? 'Filter \u25cf' : 'Filter')])),
+              ],
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text('Sort', style: TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w600, color: cs.primary)),
+            ),
           SizedBox(
-            height: _genreExpanded ? 420 : (widget.isPodcastLibrary ? 320 : 380),
-            child: TabBarView(controller: _tabCtrl, children: [
-              _buildSortTab(cs), _buildFilterTab(cs)]),
+            height: _calcHeight(),
+            child: _showFilterTab
+                ? TabBarView(controller: _tabCtrl, children: [
+                    _buildSortTab(cs), _buildFilterTab(cs)])
+                : _buildSortTab(cs),
           ),
           SizedBox(height: MediaQuery.of(context).viewPadding.bottom + 8),
         ],
@@ -91,15 +113,14 @@ class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProv
     );
   }
 
+  double _calcHeight() {
+    if (widget.libraryTab == LibraryTab.series) return 230;
+    if (widget.libraryTab == LibraryTab.authors) return 180;
+    return _genreExpanded ? 420 : (widget.isPodcastLibrary ? 320 : 400);
+  }
+
   Widget _buildSortTab(ColorScheme cs) {
-    final sorts = <(LibrarySort, String, IconData)>[
-      (LibrarySort.recentlyAdded, 'Date Added', Icons.schedule_rounded),
-      (LibrarySort.alphabetical, 'Title', Icons.sort_by_alpha_rounded),
-      (LibrarySort.authorName, 'Author', Icons.person_rounded),
-      (LibrarySort.publishedYear, 'Published Year', Icons.calendar_today_rounded),
-      (LibrarySort.duration, 'Duration', Icons.timelapse_rounded),
-      (LibrarySort.random, 'Random', Icons.shuffle_rounded),
-    ];
+    final sorts = _getSortOptions();
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       children: [
@@ -124,40 +145,67 @@ class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProv
             onTap: () => widget.onSortChanged(sort),
           );
         }),
-        if (!widget.isPodcastLibrary) ...[
-          const SizedBox(height: 8),
-          Divider(color: cs.outlineVariant.withValues(alpha: 0.3), height: 1),
-          const SizedBox(height: 8),
+        if (widget.libraryTab == LibraryTab.library && !widget.isPodcastLibrary)
           GestureDetector(
-            onTap: () => widget.onCollapseSeriesChanged(!widget.collapseSeries),
+            onTap: () {
+              setState(() => _collapseSeries = !_collapseSeries);
+              widget.onCollapseSeriesChanged(_collapseSeries);
+            },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               margin: const EdgeInsets.only(bottom: 4),
               decoration: BoxDecoration(
-                color: widget.collapseSeries ? cs.secondary.withValues(alpha: 0.12) : Colors.transparent,
+                color: _collapseSeries ? cs.secondary.withValues(alpha: 0.12) : Colors.transparent,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Row(children: [
                 Icon(Icons.auto_stories_rounded, size: 20,
-                  color: widget.collapseSeries ? cs.secondary : cs.onSurfaceVariant),
+                  color: _collapseSeries ? cs.secondary : cs.onSurfaceVariant),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text('Collapse Series', style: TextStyle(
                     fontSize: 14,
-                    fontWeight: widget.collapseSeries ? FontWeight.w600 : FontWeight.w400,
-                    color: widget.collapseSeries ? cs.secondary : cs.onSurface)),
+                    fontWeight: _collapseSeries ? FontWeight.w600 : FontWeight.w400,
+                    color: _collapseSeries ? cs.secondary : cs.onSurface)),
                 ),
                 Switch(
-                  value: widget.collapseSeries,
-                  onChanged: widget.onCollapseSeriesChanged,
+                  value: _collapseSeries,
+                  onChanged: (v) {
+                    setState(() => _collapseSeries = v);
+                    widget.onCollapseSeriesChanged(v);
+                  },
                   activeThumbColor: cs.secondary,
                 ),
               ]),
             ),
           ),
-        ],
       ],
     );
+  }
+
+  List<(LibrarySort, String, IconData)> _getSortOptions() {
+    switch (widget.libraryTab) {
+      case LibraryTab.series:
+        return [
+          (LibrarySort.alphabetical, 'Name', Icons.sort_by_alpha_rounded),
+          (LibrarySort.recentlyAdded, 'Date Added', Icons.schedule_rounded),
+          (LibrarySort.totalDuration, 'Number of Books', Icons.auto_stories_rounded),
+        ];
+      case LibraryTab.authors:
+        return [
+          (LibrarySort.alphabetical, 'Name', Icons.sort_by_alpha_rounded),
+          (LibrarySort.totalDuration, 'Number of Books', Icons.auto_stories_rounded),
+        ];
+      case LibraryTab.library:
+        return [
+          (LibrarySort.recentlyAdded, 'Date Added', Icons.schedule_rounded),
+          (LibrarySort.alphabetical, 'Title', Icons.sort_by_alpha_rounded),
+          (LibrarySort.authorName, 'Author', Icons.person_rounded),
+          (LibrarySort.publishedYear, 'Published Year', Icons.calendar_today_rounded),
+          (LibrarySort.duration, 'Duration', Icons.timelapse_rounded),
+          (LibrarySort.random, 'Random', Icons.shuffle_rounded),
+        ];
+    }
   }
 
   Widget _buildFilterTab(ColorScheme cs) {
@@ -166,7 +214,6 @@ class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProv
       (LibraryFilter.finished, 'Finished', Icons.check_circle_outline_rounded),
       (LibraryFilter.notStarted, 'Not Started', Icons.circle_outlined),
       (LibraryFilter.downloaded, 'Downloaded', Icons.download_done_rounded),
-      (LibraryFilter.inASeries, 'Series', Icons.auto_stories_rounded),
       (LibraryFilter.hasEbook, 'Has eBook', Icons.menu_book_rounded),
     ];
     return ListView(

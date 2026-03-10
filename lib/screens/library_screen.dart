@@ -14,7 +14,7 @@ import '../widgets/library_search_results.dart';
 import '../widgets/library_sort_filter_sheet.dart';
 
 // ─── Sort modes ──────────────────────────────────────────────
-enum LibrarySort { recentlyAdded, alphabetical, authorName, publishedYear, duration, random }
+enum LibrarySort { recentlyAdded, alphabetical, authorName, publishedYear, duration, random, totalDuration }
 
 // ─── Filter modes ────────────────────────────────────────────
 enum LibraryFilter { none, inProgress, finished, notStarted, downloaded, inASeries, hasEbook, genre }
@@ -26,7 +26,7 @@ class LibraryScreen extends StatefulWidget {
   State<LibraryScreen> createState() => LibraryScreenState();
 }
 
-class LibraryScreenState extends State<LibraryScreen> {
+class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMixin {
   // ── Search state ──
   final _searchController = TextEditingController();
   final _focusNode = FocusNode();
@@ -49,14 +49,18 @@ class LibraryScreenState extends State<LibraryScreen> {
   bool _hasSearched = false;
   bool get _isInSearchMode => _searchController.text.trim().isNotEmpty;
 
-  // ── Browse state ──
+  // ── Tab state ──
+  TabController? _tabController;
+  int _currentTab = 0;
+
+  // ── Browse state (Library tab) ──
+  bool _collapseSeries = false;
   LibrarySort _sort = LibrarySort.recentlyAdded;
   bool _sortAsc = false; // false = desc (newest/longest first), true = asc
   LibraryFilter _filter = LibraryFilter.none;
   String? _genreFilter;
   List<String> _availableGenres = [];
   bool _hideEbookOnly = false;
-  bool _collapseSeries = false;
   final List<Map<String, dynamic>> _items = [];
   bool _isLoadingPage = false;
   bool _hasMore = true;
@@ -67,6 +71,24 @@ class LibraryScreenState extends State<LibraryScreen> {
   static const _pageSize = 20;
 
   final _scrollController = ScrollController();
+
+  // ── Series tab state ──
+  final List<Map<String, dynamic>> _seriesItems = [];
+  bool _isLoadingSeriesPage = false;
+  bool _hasMoreSeries = true;
+  int _seriesPage = 0;
+  int _totalSeries = 0;
+  LibrarySort _seriesSort = LibrarySort.alphabetical;
+  bool _seriesSortAsc = true;
+  final _seriesScrollController = ScrollController();
+
+  // ── Authors tab state ──
+  List<Map<String, dynamic>> _authors = [];
+  bool _isLoadingAuthors = false;
+  bool _authorsLoaded = false;
+  LibrarySort _authorSort = LibrarySort.alphabetical;
+  bool _authorSortAsc = true;
+  final _authorsScrollController = ScrollController();
 
   /// Called externally (e.g. from AppShell) to focus the search field.
   void requestSearchFocus() {
@@ -79,10 +101,33 @@ class LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _seriesScrollController.addListener(_onSeriesScroll);
     // Load initial page once the library is ready
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initTabController();
       _tryInitialLoad();
     });
+  }
+
+  void _initTabController() {
+    final lib = context.read<LibraryProvider>();
+    if (!lib.isPodcastLibrary) {
+      _tabController = TabController(length: 3, vsync: this);
+      _tabController!.addListener(_onTabChanged);
+    }
+  }
+
+  void _onTabChanged() {
+    if (_tabController == null || _tabController!.indexIsChanging) return;
+    final newTab = _tabController!.index;
+    if (newTab == _currentTab) return;
+    setState(() => _currentTab = newTab);
+    // Lazy load data for the tab
+    if (newTab == 1 && _seriesItems.isEmpty && !_isLoadingSeriesPage) {
+      _loadSeriesPage();
+    } else if (newTab == 2 && !_authorsLoaded && !_isLoadingAuthors) {
+      _loadAuthors();
+    }
   }
 
   void _onLibraryProviderChanged() {
@@ -90,19 +135,46 @@ class LibraryScreenState extends State<LibraryScreen> {
     if (lib.selectedLibraryId != _lastLibraryId && lib.selectedLibraryId != null) {
       _lastLibraryId = lib.selectedLibraryId;
       _loadGeneration++;
+
+      // Rebuild tab controller if library type changed
+      final needsTabs = !lib.isPodcastLibrary;
+      final hasTabs = _tabController != null;
+      if (needsTabs != hasTabs) {
+        _tabController?.removeListener(_onTabChanged);
+        _tabController?.dispose();
+        if (needsTabs) {
+          _tabController = TabController(length: 3, vsync: this);
+          _tabController!.addListener(_onTabChanged);
+        } else {
+          _tabController = null;
+        }
+        _currentTab = 0;
+      }
+
       setState(() {
         _items.clear();
         _page = 0;
         _hasMore = true;
         _isLoadingPage = false;
         _availableGenres = [];
-        // Reset filter on library switch — genre filters don't carry across libraries
+        // Reset filter on library switch
         _filter = LibraryFilter.none;
         _genreFilter = null;
+        // Clear series and author data
+        _seriesItems.clear();
+        _seriesPage = 0;
+        _hasMoreSeries = true;
+        _isLoadingSeriesPage = false;
+        _totalSeries = 0;
+        _authors.clear();
+        _authorsLoaded = false;
+        _isLoadingAuthors = false;
       });
       PlayerSettings.setLibraryFilter('none');
       PlayerSettings.setLibraryGenreFilter(null);
       if (_scrollController.hasClients) _scrollController.jumpTo(0);
+      if (_seriesScrollController.hasClients) _seriesScrollController.jumpTo(0);
+      if (_authorsScrollController.hasClients) _authorsScrollController.jumpTo(0);
       _loadPage();
       _loadGenres();
     }
@@ -136,12 +208,20 @@ class LibraryScreenState extends State<LibraryScreen> {
       PlayerSettings.getLibrarySortAsc(),
       PlayerSettings.getLibraryFilter(),
       PlayerSettings.getLibraryGenreFilter(),
+      PlayerSettings.getSeriesSort(),
+      PlayerSettings.getSeriesSortAsc(),
+      PlayerSettings.getAuthorSort(),
+      PlayerSettings.getAuthorSortAsc(),
     ]);
     if (!mounted) return;
     final sortName = results[0] as String;
     final sortAsc = results[1] as bool;
     final filterName = results[2] as String;
     final genreFilter = results[3] as String;
+    final seriesSortName = results[4] as String;
+    final seriesSortAsc = results[5] as bool;
+    final authorSortName = results[6] as String;
+    final authorSortAsc = results[7] as bool;
     setState(() {
       _sort = LibrarySort.values.firstWhere(
         (s) => s.name == sortName,
@@ -154,6 +234,16 @@ class LibraryScreenState extends State<LibraryScreen> {
         orElse: () => LibraryFilter.none,
       );
       _genreFilter = genreFilter.isNotEmpty ? genreFilter : null;
+      _seriesSort = LibrarySort.values.firstWhere(
+        (s) => s.name == seriesSortName,
+        orElse: () => LibrarySort.alphabetical,
+      );
+      _seriesSortAsc = seriesSortAsc;
+      _authorSort = LibrarySort.values.firstWhere(
+        (s) => s.name == authorSortName,
+        orElse: () => LibrarySort.alphabetical,
+      );
+      _authorSortAsc = authorSortAsc;
     });
   }
 
@@ -210,6 +300,10 @@ class LibraryScreenState extends State<LibraryScreen> {
     _searchController.dispose();
     _focusNode.dispose();
     _scrollController.dispose();
+    _seriesScrollController.dispose();
+    _authorsScrollController.dispose();
+    _tabController?.removeListener(_onTabChanged);
+    _tabController?.dispose();
     PlayerSettings.settingsChanged.removeListener(_onSettingsChanged);
     try {
       final lib = context.read<LibraryProvider>();
@@ -228,7 +322,16 @@ class LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  // ── Load a page of items ──
+  void _onSeriesScroll() {
+    if (_seriesScrollController.position.pixels >=
+        _seriesScrollController.position.maxScrollExtent - 400) {
+      _loadSeriesPage();
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // LIBRARY TAB - Load a page of items
+  // ══════════════════════════════════════════════════════════════
   Future<void> _loadPage() async {
     if (_isLoadingPage || !_hasMore) return;
     setState(() => _isLoadingPage = true);
@@ -254,6 +357,7 @@ class LibraryScreenState extends State<LibraryScreen> {
       case LibrarySort.publishedYear:
         sort = 'media.metadata.publishedYear'; desc = _sortAsc ? 0 : 1; break;
       case LibrarySort.duration:
+      case LibrarySort.totalDuration:
         sort = 'media.duration'; desc = _sortAsc ? 0 : 1; break;
       case LibrarySort.random:
         sort = 'addedAt'; desc = 1; break;
@@ -274,8 +378,7 @@ class LibraryScreenState extends State<LibraryScreen> {
     // Downloaded filter is client-side — handled after loading
 
     final useClientFilter = _filter == LibraryFilter.downloaded;
-    final seriesOnlyFilter = _filter == LibraryFilter.inASeries;
-    final fetchAll = _sort == LibrarySort.random || useClientFilter || seriesOnlyFilter;
+    final fetchAll = _sort == LibrarySort.random || useClientFilter;
     final limit = fetchAll ? 1000 : _pageSize;
 
     final result = await api.getLibraryItems(
@@ -285,7 +388,7 @@ class LibraryScreenState extends State<LibraryScreen> {
       sort: sort,
       desc: desc,
       filter: filter,
-      collapseSeries: (_collapseSeries || seriesOnlyFilter) && !useClientFilter && !lib.isPodcastLibrary,
+      collapseSeries: _collapseSeries && !useClientFilter && !lib.isPodcastLibrary,
     );
 
     if (result != null && mounted && gen == _loadGeneration) {
@@ -304,9 +407,6 @@ class LibraryScreenState extends State<LibraryScreen> {
               final id = r['id'] as String? ?? '';
               if (!DownloadService().isDownloaded(id)) continue;
             }
-            if (seriesOnlyFilter) {
-              if (r['collapsedSeries'] == null) continue;
-            }
             if (_hideEbookOnly && PlayerSettings.isEbookOnly(r)) continue;
             _items.add(r);
           }
@@ -314,7 +414,7 @@ class LibraryScreenState extends State<LibraryScreen> {
         if (_sort == LibrarySort.random) {
           _items.shuffle(Random(_randomSeed));
           _hasMore = false;
-        } else if (useClientFilter || seriesOnlyFilter) {
+        } else if (useClientFilter) {
           _hasMore = false; // All loaded and filtered at once
         } else {
           _page++;
@@ -327,8 +427,104 @@ class LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // SERIES TAB - Load a page of series
+  // ══════════════════════════════════════════════════════════════
+  Future<void> _loadSeriesPage() async {
+    if (_isLoadingSeriesPage || !_hasMoreSeries) return;
+    setState(() => _isLoadingSeriesPage = true);
+
+    final auth = context.read<AuthProvider>();
+    final lib = context.read<LibraryProvider>();
+    final api = auth.apiService;
+    if (api == null || lib.selectedLibraryId == null) {
+      setState(() => _isLoadingSeriesPage = false);
+      return;
+    }
+
+    String sort;
+    switch (_seriesSort) {
+      case LibrarySort.alphabetical:
+        sort = 'name'; break;
+      case LibrarySort.recentlyAdded:
+        sort = 'addedAt'; break;
+      case LibrarySort.totalDuration:
+        sort = 'numBooks'; break;
+      default:
+        sort = 'name'; break;
+    }
+
+    final result = await api.getLibrarySeries(
+      lib.selectedLibraryId!,
+      page: _seriesPage,
+      limit: 50,
+      sort: sort,
+      desc: _seriesSortAsc ? 0 : 1,
+    );
+
+    if (result != null && mounted) {
+      final results = (result['results'] as List<dynamic>?) ?? [];
+      final total = (result['total'] as int?) ?? 0;
+      setState(() {
+        _totalSeries = total;
+        for (final r in results) {
+          if (r is Map<String, dynamic>) {
+            _seriesItems.add(r);
+          }
+        }
+        _seriesPage++;
+        _hasMoreSeries = _seriesItems.length < total;
+        _isLoadingSeriesPage = false;
+      });
+    } else if (mounted) {
+      setState(() => _isLoadingSeriesPage = false);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // AUTHORS TAB - Load all authors
+  // ══════════════════════════════════════════════════════════════
+  Future<void> _loadAuthors() async {
+    if (_isLoadingAuthors) return;
+    setState(() => _isLoadingAuthors = true);
+
+    final auth = context.read<AuthProvider>();
+    final lib = context.read<LibraryProvider>();
+    final api = auth.apiService;
+    if (api == null || lib.selectedLibraryId == null) {
+      setState(() { _isLoadingAuthors = false; _authorsLoaded = true; });
+      return;
+    }
+
+    final authors = await api.getLibraryAuthors(lib.selectedLibraryId!);
+    if (mounted) {
+      setState(() {
+        _authors = authors;
+        _sortAuthors();
+        _isLoadingAuthors = false;
+        _authorsLoaded = true;
+      });
+    }
+  }
+
+  void _sortAuthors() {
+    _authors.sort((a, b) {
+      if (_authorSort == LibrarySort.totalDuration) {
+        final aCount = a['numBooks'] as int? ?? 0;
+        final bCount = b['numBooks'] as int? ?? 0;
+        return _authorSortAsc ? aCount.compareTo(bCount) : bCount.compareTo(aCount);
+      }
+      final aName = (a['name'] as String? ?? '').toLowerCase();
+      final bName = (b['name'] as String? ?? '').toLowerCase();
+      return _authorSortAsc ? aName.compareTo(bName) : bName.compareTo(aName);
+    });
+  }
+
   // ── Change sort and reload ──
   void _changeSort(LibrarySort newSort) {
+    if (_currentTab == 1) { _changeSeriesSort(newSort); return; }
+    if (_currentTab == 2) { _changeAuthorSort(newSort); return; }
+
     if (newSort == _sort) {
       // Tapping the same sort toggles direction (except Random)
       if (newSort == LibrarySort.random) return;
@@ -360,6 +556,42 @@ class LibraryScreenState extends State<LibraryScreen> {
     PlayerSettings.setLibrarySortAsc(_sortAsc);
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     _loadPage();
+  }
+
+  void _changeSeriesSort(LibrarySort newSort) {
+    if (newSort == _seriesSort) {
+      setState(() { _seriesSortAsc = !_seriesSortAsc; });
+    } else {
+      setState(() {
+        _seriesSort = newSort;
+        _seriesSortAsc = newSort == LibrarySort.alphabetical;
+      });
+    }
+    setState(() {
+      _seriesItems.clear();
+      _seriesPage = 0;
+      _hasMoreSeries = true;
+      _isLoadingSeriesPage = false;
+    });
+    PlayerSettings.setSeriesSort(_seriesSort.name);
+    PlayerSettings.setSeriesSortAsc(_seriesSortAsc);
+    if (_seriesScrollController.hasClients) _seriesScrollController.jumpTo(0);
+    _loadSeriesPage();
+  }
+
+  void _changeAuthorSort(LibrarySort newSort) {
+    if (newSort == _authorSort) {
+      setState(() { _authorSortAsc = !_authorSortAsc; });
+    } else {
+      setState(() {
+        _authorSort = newSort;
+        _authorSortAsc = newSort == LibrarySort.alphabetical;
+      });
+    }
+    PlayerSettings.setAuthorSort(_authorSort.name);
+    PlayerSettings.setAuthorSortAsc(_authorSortAsc);
+    setState(() => _sortAuthors());
+    if (_authorsScrollController.hasClients) _authorsScrollController.jumpTo(0);
   }
 
   // ── Change filter and reload ──
@@ -544,15 +776,6 @@ class LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  String get _sortLabel => switch (_sort) {
-    LibrarySort.recentlyAdded => 'Date Added',
-    LibrarySort.alphabetical => 'Title',
-    LibrarySort.authorName => 'Author',
-    LibrarySort.publishedYear => 'Year',
-    LibrarySort.duration => 'Duration',
-    LibrarySort.random => 'Random',
-  };
-
   String get _filterLabel => switch (_filter) {
     LibraryFilter.inProgress => 'In Progress',
     LibraryFilter.finished => 'Finished',
@@ -565,32 +788,73 @@ class LibraryScreenState extends State<LibraryScreen> {
   };
 
   void _showSortFilterSheet(BuildContext context, ColorScheme cs, TextTheme tt, {int initialTab = 0}) {
+    final LibraryTab tab;
+    final LibrarySort currentSort;
+    final bool currentSortAsc;
+    switch (_currentTab) {
+      case 1:
+        tab = LibraryTab.series;
+        currentSort = _seriesSort;
+        currentSortAsc = _seriesSortAsc;
+        break;
+      case 2:
+        tab = LibraryTab.authors;
+        currentSort = _authorSort;
+        currentSortAsc = _authorSortAsc;
+        break;
+      default:
+        tab = LibraryTab.library;
+        currentSort = _sort;
+        currentSortAsc = _sortAsc;
+        break;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => SortFilterSheet(
-        currentSort: _sort,
-        sortAsc: _sortAsc,
+        currentSort: currentSort,
+        sortAsc: currentSortAsc,
         currentFilter: _filter,
         genreFilter: _genreFilter,
         availableGenres: _availableGenres,
         initialTab: initialTab,
         cs: cs, tt: tt,
+        libraryTab: tab,
         onSortChanged: (sort) { Navigator.pop(ctx); _changeSort(sort); },
         onSortDirectionToggled: () {
-          setState(() { _sortAsc = !_sortAsc; _items.clear(); _page = 0; _hasMore = true; _isLoadingPage = false; });
-          if (_scrollController.hasClients) _scrollController.jumpTo(0);
-          _loadPage();
+          if (_currentTab == 1) {
+            setState(() { _seriesSortAsc = !_seriesSortAsc; _seriesItems.clear(); _seriesPage = 0; _hasMoreSeries = true; _isLoadingSeriesPage = false; });
+            PlayerSettings.setSeriesSortAsc(_seriesSortAsc);
+            if (_seriesScrollController.hasClients) _seriesScrollController.jumpTo(0);
+            _loadSeriesPage();
+          } else if (_currentTab == 2) {
+            setState(() { _authorSortAsc = !_authorSortAsc; _sortAuthors(); });
+            PlayerSettings.setAuthorSortAsc(_authorSortAsc);
+            if (_authorsScrollController.hasClients) _authorsScrollController.jumpTo(0);
+          } else {
+            setState(() { _sortAsc = !_sortAsc; _items.clear(); _page = 0; _hasMore = true; _isLoadingPage = false; });
+            if (_scrollController.hasClients) _scrollController.jumpTo(0);
+            _loadPage();
+          }
           Navigator.pop(ctx);
         },
         onFilterChanged: (filter, {String? genre}) { Navigator.pop(ctx); _changeFilter(filter, genre: genre); },
         onClearFilter: () { Navigator.pop(ctx); _changeFilter(LibraryFilter.none); },
         collapseSeries: _collapseSeries,
         onCollapseSeriesChanged: (value) {
-          Navigator.pop(ctx);
+          _loadGeneration++;
+          setState(() {
+            _collapseSeries = value;
+            _items.clear();
+            _page = 0;
+            _hasMore = true;
+            _isLoadingPage = false;
+          });
           PlayerSettings.setCollapseSeries(value);
+          if (_scrollController.hasClients) _scrollController.jumpTo(0);
+          _loadPage();
         },
         isPodcastLibrary: context.read<LibraryProvider>().isPodcastLibrary,
       ),
@@ -605,37 +869,9 @@ class LibraryScreenState extends State<LibraryScreen> {
     final allLibraries = lib.libraries;
     final hasMultipleLibraries = allLibraries.length > 1;
     final libraryName = lib.selectedLibrary?['name'] as String? ?? 'Library';
+    final hasTabs = _tabController != null && !_isInSearchMode;
 
     return Scaffold(
-      floatingActionButton: _isInSearchMode ? null : ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: GestureDetector(
-            onTap: () => _showSortFilterSheet(context, cs, tt),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: cs.surface.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: cs.primary.withValues(alpha: 0.25)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(_filter != LibraryFilter.none ? Icons.filter_list_rounded : Icons.tune_rounded, size: 16, color: cs.primary),
-                  const SizedBox(width: 6),
-                  Text(
-                    _filter != LibraryFilter.none ? 'Sort & Filter ●' : 'Sort & Filter',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: cs.primary),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: SafeArea(
         child: Column(
           children: [
@@ -674,7 +910,7 @@ class LibraryScreenState extends State<LibraryScreen> {
               child: SearchBar(
                 controller: _searchController,
                 focusNode: _focusNode,
-                hintText: context.read<LibraryProvider>().isPodcastLibrary
+                hintText: lib.isPodcastLibrary
                     ? 'Search shows and episodes...'
                     : 'Search books, series, and authors...',
                 leading: const Padding(
@@ -697,100 +933,153 @@ class LibraryScreenState extends State<LibraryScreen> {
               ),
             ),
 
+            // Item count + filter badge row
             if (!_isInSearchMode)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                child: Row(
-                  children: [
-                    GestureDetector(
-                      onTap: () => _showSortFilterSheet(context, cs, tt, initialTab: 0),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: cs.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.sort_rounded, size: 14, color: cs.primary),
-                            const SizedBox(width: 4),
-                            Text(_sortLabel, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.primary)),
-                            const SizedBox(width: 2),
-                            if (_sort != LibrarySort.random)
-                              Icon(_sortAsc ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded, size: 12, color: cs.primary),
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (_filter != LibraryFilter.none) ...[
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: GestureDetector(
-                          onTap: () => _showSortFilterSheet(context, cs, tt, initialTab: 1),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: cs.tertiary.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.filter_list_rounded, size: 14, color: cs.tertiary),
-                                const SizedBox(width: 4),
-                                Flexible(
-                                  child: Text(_filterLabel, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.tertiary), overflow: TextOverflow.ellipsis, maxLines: 1),
-                                ),
-                                const SizedBox(width: 4),
-                                GestureDetector(
-                                  onTap: () => _changeFilter(LibraryFilter.none),
-                                  child: Icon(Icons.close_rounded, size: 14, color: cs.tertiary),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                    if (_collapseSeries) ...[
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: () => PlayerSettings.setCollapseSeries(false),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: cs.secondary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.auto_stories_rounded, size: 14, color: cs.secondary),
-                              const SizedBox(width: 4),
-                              Text('Series Collapsed', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.secondary)),
-                              const SizedBox(width: 4),
-                              Icon(Icons.close_rounded, size: 14, color: cs.secondary),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                    const Spacer(),
-                    Text('${_items.length}${_totalItems > 0 ? '/$_totalItems' : ''} ${_collapseSeries ? 'items' : 'books'}',
-                      style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6))),
-                  ],
-                ),
-              ),
+              _buildInfoRow(cs, tt),
 
             Expanded(
-              child: _isInSearchMode
-                  ? _buildSearchResults(cs, tt)
-                  : _buildGrid(cs, tt),
+              child: Stack(
+                children: [
+                  _isInSearchMode
+                      ? _buildSearchResults(cs, tt)
+                      : hasTabs
+                          ? _buildTabbedContent(cs, tt)
+                          : _buildGrid(cs, tt),
+                  // Floating tab bar at bottom (book libraries only, hidden during search)
+                  if (hasTabs)
+                    Positioned(
+                      left: 0, right: 0,
+                      bottom: 12,
+                      child: _buildFloatingTabBar(cs),
+                    ),
+                ],
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildFloatingTabBar(ColorScheme cs) {
+    const labels = ['Library', 'Series', 'Authors'];
+    return Center(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: cs.surface.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: cs.primary.withValues(alpha: 0.25)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(3, (i) {
+                final active = _currentTab == i;
+                return GestureDetector(
+                  onTap: () {
+                    if (active) {
+                      _showSortFilterSheet(context, cs, Theme.of(context).textTheme);
+                    } else {
+                      _tabController?.animateTo(i);
+                    }
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeInOut,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: active ? cs.primary.withValues(alpha: 0.15) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          labels[i],
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                            color: active ? cs.primary : cs.onSurfaceVariant,
+                          ),
+                        ),
+                        if (active) ...[
+                          const SizedBox(width: 4),
+                          Icon(Icons.sort_rounded, size: 14, color: cs.primary),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(ColorScheme cs, TextTheme tt) {
+    String countText;
+    switch (_currentTab) {
+      case 1:
+        countText = '$_totalSeries series';
+        break;
+      case 2:
+        countText = '${_authors.length} authors';
+        break;
+      default:
+        countText = '${_items.length}${_totalItems > 0 ? '/$_totalItems' : ''} books';
+        break;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          if (_currentTab == 0 && _filter != LibraryFilter.none) ...[
+            GestureDetector(
+              onTap: () => _changeFilter(LibraryFilter.none),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: cs.tertiary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.filter_list_rounded, size: 14, color: cs.tertiary),
+                    const SizedBox(width: 4),
+                    Text(_filterLabel, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.tertiary),
+                        overflow: TextOverflow.ellipsis, maxLines: 1),
+                    const SizedBox(width: 4),
+                    Icon(Icons.close_rounded, size: 14, color: cs.tertiary),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          const Spacer(),
+          Text(countText,
+            style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabbedContent(ColorScheme cs, TextTheme tt) {
+    // Use IndexedStack to preserve scroll positions across tabs
+    return IndexedStack(
+      index: _currentTab,
+      children: [
+        _buildGrid(cs, tt),
+        _buildSeriesGrid(cs, tt),
+        _buildAuthorsGrid(cs, tt),
+      ],
     );
   }
 
@@ -809,8 +1098,27 @@ class LibraryScreenState extends State<LibraryScreen> {
     await _loadPage();
   }
 
+  Future<void> _refreshSeries() async {
+    setState(() {
+      _seriesItems.clear();
+      _seriesPage = 0;
+      _hasMoreSeries = true;
+      _isLoadingSeriesPage = false;
+    });
+    await _loadSeriesPage();
+  }
+
+  Future<void> _refreshAuthors() async {
+    setState(() {
+      _authors.clear();
+      _authorsLoaded = false;
+      _isLoadingAuthors = false;
+    });
+    await _loadAuthors();
+  }
+
   // ═══════════════════════════════════════════════════════════════
-  // BROWSE GRID
+  // LIBRARY TAB - BROWSE GRID
   // ═══════════════════════════════════════════════════════════════
   Widget _buildGrid(ColorScheme cs, TextTheme tt) {
     if (_items.isEmpty && _isLoadingPage) {
@@ -874,7 +1182,6 @@ class LibraryScreenState extends State<LibraryScreen> {
       itemCount: _items.length + (_hasMore ? 1 : 0),
       itemBuilder: (context, index) {
         if (index >= _items.length) {
-          // Loading indicator at the end
           return const Center(
             child: Padding(
               padding: EdgeInsets.all(16),
@@ -889,6 +1196,118 @@ class LibraryScreenState extends State<LibraryScreen> {
         return GridBookTile(item: item);
       },
     ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // SERIES TAB - GRID
+  // ═══════════════════════════════════════════════════════════════
+  Widget _buildSeriesGrid(ColorScheme cs, TextTheme tt) {
+    if (_seriesItems.isEmpty && _isLoadingSeriesPage) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_seriesItems.isEmpty && !_isLoadingSeriesPage) {
+      return RefreshIndicator(
+        onRefresh: _refreshSeries,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverFillRemaining(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.collections_bookmark_outlined,
+                        size: 56, color: cs.onSurfaceVariant.withValues(alpha: 0.3)),
+                    const SizedBox(height: 12),
+                    Text('No series found',
+                        style: tt.bodyLarge?.copyWith(color: cs.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refreshSeries,
+      child: GridView.builder(
+        controller: _seriesScrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          childAspectRatio: 0.68,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+        ),
+        itemCount: _seriesItems.length + (_hasMoreSeries ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index >= _seriesItems.length) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          }
+          return GridSeriesTileDirect(series: _seriesItems[index]);
+        },
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // AUTHORS TAB - GRID
+  // ═══════════════════════════════════════════════════════════════
+  Widget _buildAuthorsGrid(ColorScheme cs, TextTheme tt) {
+    if (_isLoadingAuthors) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_authors.isEmpty && _authorsLoaded) {
+      return RefreshIndicator(
+        onRefresh: _refreshAuthors,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverFillRemaining(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.people_outline_rounded,
+                        size: 56, color: cs.onSurfaceVariant.withValues(alpha: 0.3)),
+                    const SizedBox(height: 12),
+                    Text('No authors found',
+                        style: tt.bodyLarge?.copyWith(color: cs.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refreshAuthors,
+      child: GridView.builder(
+        controller: _authorsScrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          childAspectRatio: 0.68,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+        ),
+        itemCount: _authors.length,
+        itemBuilder: (context, index) {
+          return GridAuthorTile(author: _authors[index]);
+        },
+      ),
     );
   }
 

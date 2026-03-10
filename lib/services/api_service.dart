@@ -339,6 +339,44 @@ class ApiService {
     return [];
   }
 
+  /// Get all authors for a library.
+  Future<List<Map<String, dynamic>>> getLibraryAuthors(String libraryId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_cleanBaseUrl/api/libraries/$libraryId/authors'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final authors = data['authors'] as List<dynamic>? ?? [];
+        return authors.cast<Map<String, dynamic>>();
+      }
+    } catch (e) {
+      debugPrint('[API] getLibraryAuthors error: $e');
+    }
+    return [];
+  }
+
+  /// Get full author details including description/bio.
+  Future<Map<String, dynamic>?> getAuthorById(String authorId, {String? libraryId}) async {
+    try {
+      var url = '$_cleanBaseUrl/api/authors/$authorId?include=items';
+      if (libraryId != null) url += '&library=$libraryId';
+      final response = await http.get(
+        Uri.parse(url),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (e) {
+      debugPrint('[API] getAuthorById error: $e');
+    }
+    return null;
+  }
+
   /// Get books in a specific series using the filter API.
   /// Filter format: series.<base64(seriesId)>
   Future<List<dynamic>> getBooksBySeries(

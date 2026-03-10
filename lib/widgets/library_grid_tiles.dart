@@ -8,6 +8,7 @@ import '../services/download_service.dart';
 import 'book_detail_sheet.dart';
 import 'episode_list_sheet.dart';
 import 'series_books_sheet.dart';
+import 'author_books_sheet.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // Grid book tile (cover + title + author)
@@ -319,6 +320,235 @@ class GridSeriesTile extends StatelessWidget {
         child: Icon(Icons.auto_stories_rounded,
             size: 24, color: cs.onSurfaceVariant.withValues(alpha: 0.3)),
       ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Grid series tile for the series API format (series tab)
+// The series endpoint returns { id, name, books: [...] } instead
+// of the collapsedSeries format used by the library items endpoint.
+// ═══════════════════════════════════════════════════════════════
+class GridSeriesTileDirect extends StatelessWidget {
+  final Map<String, dynamic> series;
+  const GridSeriesTileDirect({super.key, required this.series});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final lib = context.watch<LibraryProvider>();
+    final auth = context.read<AuthProvider>();
+
+    final seriesName = series['name'] as String? ?? 'Unknown Series';
+    final seriesId = series['id'] as String? ?? '';
+    final books = series['books'] as List<dynamic>? ?? [];
+    final numBooks = books.length;
+
+    // Get cover from first book in series
+    String? coverUrl;
+    String author = '';
+    if (books.isNotEmpty) {
+      final firstBook = books.first as Map<String, dynamic>? ?? {};
+      final bookId = firstBook['id'] as String? ?? '';
+      if (bookId.isNotEmpty) coverUrl = lib.getCoverUrl(bookId);
+      final media = firstBook['media'] as Map<String, dynamic>? ?? {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+      author = metadata['authorName'] as String? ?? '';
+    }
+
+    return GestureDetector(
+      onTap: () {
+        if (seriesId.isNotEmpty) {
+          showSeriesBooksSheet(
+            context,
+            seriesName: seriesName,
+            seriesId: seriesId,
+            books: const [],
+            serverUrl: auth.serverUrl,
+            token: auth.token,
+          );
+        }
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  coverUrl != null
+                      ? coverUrl.startsWith('/')
+                          ? Image.file(File(coverUrl), fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _placeholder(cs))
+                          : CachedNetworkImage(
+                              imageUrl: coverUrl,
+                              fit: BoxFit.cover,
+                              httpHeaders: lib.mediaHeaders,
+                              placeholder: (_, __) => _placeholder(cs),
+                              errorWidget: (_, __, ___) => _placeholder(cs),
+                            )
+                      : _placeholder(cs),
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: cs.primaryContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.auto_stories_rounded, size: 11, color: cs.onPrimaryContainer),
+                          const SizedBox(width: 3),
+                          Text('$numBooks',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                              color: cs.onPrimaryContainer)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            seriesName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: tt.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+              fontSize: 11,
+            ),
+          ),
+          if (author.isNotEmpty)
+            Text(
+              author,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: tt.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                fontSize: 10,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _placeholder(ColorScheme cs) {
+    return Container(
+      color: cs.surfaceContainerHighest,
+      child: Center(
+        child: Icon(Icons.auto_stories_rounded,
+            size: 24, color: cs.onSurfaceVariant.withValues(alpha: 0.3)),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Grid author tile (circular avatar + name + book count)
+// ═══════════════════════════════════════════════════════════════
+class GridAuthorTile extends StatelessWidget {
+  final Map<String, dynamic> author;
+  const GridAuthorTile({super.key, required this.author});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final auth = context.read<AuthProvider>();
+    final lib = context.read<LibraryProvider>();
+
+    final name = author['name'] as String? ?? 'Unknown';
+    final authorId = author['id'] as String? ?? '';
+    final numBooks = author['numBooks'] as int? ?? 0;
+
+    String? imageUrl;
+    if (authorId.isNotEmpty && auth.apiService != null) {
+      final ts = (author['updatedAt'] as num?)?.toInt();
+      imageUrl = auth.apiService!.getAuthorImageUrl(authorId, updatedAt: ts);
+    }
+
+    final headers = lib.mediaHeaders;
+
+    return GestureDetector(
+      onTap: () {
+        if (authorId.isNotEmpty) {
+          showAuthorDetailSheet(context, authorId: authorId, authorName: name);
+        }
+      },
+      child: Column(
+        children: [
+          // Circular avatar
+          AspectRatio(
+            aspectRatio: 1,
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: cs.secondaryContainer,
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  imageUrl != null
+                      ? CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          httpHeaders: headers,
+                          placeholder: (_, __) => _placeholder(cs),
+                          errorWidget: (_, __, ___) => _placeholder(cs),
+                        )
+                      : _placeholder(cs),
+                  if (numBooks > 0)
+                    Positioned(
+                      bottom: 4,
+                      right: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: cs.primaryContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text('$numBooks',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                            color: cs.onPrimaryContainer)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            name,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: tt.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _placeholder(ColorScheme cs) {
+    return Center(
+      child: Icon(Icons.person_rounded,
+          size: 32, color: cs.onSecondaryContainer.withValues(alpha: 0.4)),
     );
   }
 }
