@@ -964,13 +964,13 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
-              _moreItem(cs, lib.isOnAbsorbingList(_itemId)
+              _moreItem(cs, lib.isOnAbsorbingList(dlKey)
                   ? Icons.remove_circle_outline_rounded : Icons.add_circle_outline_rounded,
-                lib.isOnAbsorbingList(_itemId) ? 'Remove from Absorbing' : 'Add to Absorbing',
+                lib.isOnAbsorbingList(dlKey) ? 'Remove from Absorbing' : 'Add to Absorbing',
                 onTap: () async {
                   Navigator.pop(ctx);
-                  if (lib.isOnAbsorbingList(_itemId)) {
-                    await lib.removeFromAbsorbing(_itemId);
+                  if (lib.isOnAbsorbingList(dlKey)) {
+                    await lib.removeFromAbsorbing(dlKey);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                         duration: const Duration(seconds: 3),
@@ -979,7 +979,11 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
                     }
                   } else {
-                    await lib.addToAbsorbingQueue(_itemId);
+                    await lib.addToAbsorbingQueue(dlKey);
+                    final cached = Map<String, dynamic>.from(widget.podcastItem);
+                    cached['recentEpisode'] = Map<String, dynamic>.from(widget.episode);
+                    cached['_absorbingKey'] = dlKey;
+                    lib.absorbingItemCache[dlKey] = cached;
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                         duration: const Duration(seconds: 3),

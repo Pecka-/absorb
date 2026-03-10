@@ -58,7 +58,6 @@ class SocketService {
         if (data is Map<String, dynamic>) {
           final patch = data['data'] as Map<String, dynamic>?;
           if (patch != null) {
-            debugPrint('[Socket] Progress updated for ${patch['libraryItemId']}');
             onProgressUpdated?.call(patch);
           }
         }
