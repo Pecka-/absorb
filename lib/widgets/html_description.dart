@@ -42,37 +42,40 @@ class _HtmlDescriptionState extends State<HtmlDescription> {
     final linkColor = widget.linkColor ?? cs.primary;
 
     final spans = _parseHtml(widget.html, baseStyle ?? const TextStyle(), linkColor);
-    final richText = Text.rich(
-      TextSpan(children: spans),
-      maxLines: _expanded ? null : widget.maxLines,
-      overflow: _expanded ? TextOverflow.clip : TextOverflow.ellipsis,
-    );
+    final textSpan = TextSpan(children: spans);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        richText,
-        // Show toggle if text is likely long enough to be truncated
-        if (_isLikelyTruncated(widget.html, widget.maxLines))
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: GestureDetector(
-              onTap: () => setState(() => _expanded = !_expanded),
-              child: Text(
-                _expanded ? 'Show less' : 'Show more',
-                style: TextStyle(fontSize: 12, color: linkColor, fontWeight: FontWeight.w500),
+    return LayoutBuilder(builder: (context, constraints) {
+      // Measure whether the text actually overflows at maxLines
+      final tp = TextPainter(
+        text: textSpan,
+        maxLines: widget.maxLines,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: constraints.maxWidth);
+      final isTruncated = tp.didExceedMaxLines;
+      tp.dispose();
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text.rich(
+            textSpan,
+            maxLines: _expanded ? null : widget.maxLines,
+            overflow: _expanded ? TextOverflow.clip : TextOverflow.ellipsis,
+          ),
+          if (isTruncated)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: GestureDetector(
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Text(
+                  _expanded ? 'Show less' : 'Show more',
+                  style: TextStyle(fontSize: 12, color: linkColor, fontWeight: FontWeight.w500),
+                ),
               ),
             ),
-          ),
-      ],
-    );
-  }
-
-  /// Rough heuristic: text is likely truncated if the plain-text content
-  /// exceeds ~80 chars per line × maxLines (conservative estimate).
-  bool _isLikelyTruncated(String html, int maxLines) {
-    final plain = _stripTags(html);
-    return plain.length > maxLines * 80 || '\n'.allMatches(plain).length >= maxLines;
+        ],
+      );
+    });
   }
 }
 
@@ -247,10 +250,3 @@ String _decodeEntities(String text) {
       .replaceAll('&raquo;', '\u00BB');
 }
 
-String _stripTags(String html) {
-  return _decodeEntities(html
-      .replaceAll(RegExp(r'<br\s*/?>'), '\n')
-      .replaceAll(RegExp(r'</p>'), '\n')
-      .replaceAll(RegExp(r'<[^>]+>'), ''))
-      .trim();
-}
