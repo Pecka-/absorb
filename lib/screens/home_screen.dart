@@ -28,6 +28,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _player = AudioPlayerService();
   bool _hideEbookOnly = false;
+  bool _rectangleCovers = false;
 
   // Cached filtered sections — invalidated when source data or settings change.
   List<Map<String, dynamic>>? _cachedSections;
@@ -48,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _player.addListener(_onPlayerChanged);
+    PlayerSettings.settingsChanged.addListener(_loadSettings);
     _loadSettings();
     Future.microtask(() {
       final lib = context.read<LibraryProvider>();
@@ -57,8 +59,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final hide = await PlayerSettings.getHideEbookOnly();
-    if (mounted) setState(() => _hideEbookOnly = hide);
+    final results = await Future.wait([
+      PlayerSettings.getHideEbookOnly(),
+      PlayerSettings.getRectangleCovers(),
+    ]);
+    if (mounted) setState(() {
+      _hideEbookOnly = results[0];
+      _rectangleCovers = results[1];
+    });
   }
 
   @override
@@ -131,6 +139,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _player.removeListener(_onPlayerChanged);
+    PlayerSettings.settingsChanged.removeListener(_loadSettings);
     super.dispose();
   }
 
@@ -592,6 +601,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           sectionType: type,
                           sectionId: id,
                           onTitleTap: titleTap,
+                          coverAspectRatio: _rectangleCovers ? 2 / 3 : 1.0,
                         ),
                       ),
                     ];

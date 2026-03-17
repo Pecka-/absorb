@@ -46,6 +46,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   List<String> _buttonOrder = PlayerSettings.defaultButtonOrder;
   String _buttonLayout = PlayerSettings.defaultButtonLayout;
   bool _autoRemoveFinished = false;
+  bool _rectangleCovers = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -135,6 +136,9 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     });
     PlayerSettings.getCardButtonLayout().then((l) {
       if (mounted && l != _buttonLayout) setState(() => _buttonLayout = l);
+    });
+    PlayerSettings.getRectangleCovers().then((v) {
+      if (mounted && v != _rectangleCovers) setState(() => _rectangleCovers = v);
     });
   }
 
@@ -496,11 +500,18 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     listenable: ChromecastService(),
                     builder: (context, _) => LayoutBuilder(
                     builder: (context, constraints) {
-                      final coverWidth = constraints.maxWidth * 0.85;
-                      // Use the smaller of desired width or available height to prevent squishing
-                      final coverSize = coverWidth < constraints.maxHeight
-                          ? coverWidth
-                          : constraints.maxHeight;
+                      final maxW = constraints.maxWidth * 0.85;
+                      final maxH = constraints.maxHeight;
+                      double coverW, coverH;
+                      if (_rectangleCovers) {
+                        coverW = maxW;
+                        coverH = coverW * 1.5;
+                        if (coverH > maxH) { coverH = maxH; coverW = coverH / 1.5; }
+                      } else {
+                        final s = maxW < maxH ? maxW : maxH;
+                        coverW = s;
+                        coverH = s;
+                      }
                       final dlKey = _episodeId != null ? '$_itemId-$_episodeId' : _itemId;
                       final isDownloaded = DownloadService().isDownloaded(dlKey);
                       final castService = ChromecastService();
@@ -508,8 +519,8 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       return GestureDetector(
                         onTap: () => _expandCard(context),
                         child: Container(
-                          width: coverSize,
-                          height: coverSize,
+                          width: coverW,
+                          height: coverH,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [

@@ -11,12 +11,14 @@ class BookCard extends StatelessWidget {
   final Map<String, dynamic> item;
   final bool showProgress;
   final bool isWide;
+  final double coverAspectRatio;
 
   const BookCard({
     super.key,
     required this.item,
     this.showProgress = false,
     this.isWide = false,
+    this.coverAspectRatio = 1.0,
   });
 
   @override
@@ -188,9 +190,9 @@ class BookCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Square cover
+        // Cover
         AspectRatio(
-          aspectRatio: 1,
+          aspectRatio: coverAspectRatio,
           child: _PressableCard(
             onTap: () => _navigateToDetail(context),
             borderRadius: 12,
@@ -282,7 +284,7 @@ class BookCard extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 2),
           child: Text(
             title,
-            maxLines: 2,
+            maxLines: coverAspectRatio < 1.0 ? 1 : 2,
             overflow: TextOverflow.ellipsis,
             style: tt.labelMedium?.copyWith(
               fontWeight: FontWeight.w500,

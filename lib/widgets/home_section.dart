@@ -14,6 +14,7 @@ class HomeSection extends StatelessWidget {
   final String sectionType;
   final String sectionId;
   final VoidCallback? onTitleTap;
+  final double coverAspectRatio;
 
   const HomeSection({
     super.key,
@@ -23,6 +24,7 @@ class HomeSection extends StatelessWidget {
     required this.sectionType,
     required this.sectionId,
     this.onTitleTap,
+    this.coverAspectRatio = 1.0,
   });
 
   @override
@@ -42,10 +44,11 @@ class HomeSection extends StatelessWidget {
         (entities.first as Map<String, dynamic>)['recentEpisode'] != null;
     final effectiveEpisode = isEpisodeSection || hasEpisodeEntities;
 
+    final bool isRectCover = coverAspectRatio < 1.0;
     final double cardWidth =
         isContinueListening ? 300 : (isAuthorSection ? 120 : 140);
     final double cardHeight =
-        isContinueListening ? 120 : effectiveEpisode ? 200 : (isAuthorSection ? 170 : 200);
+        isContinueListening ? 120 : effectiveEpisode ? 200 : (isAuthorSection ? 170 : (isRectCover ? 260 : 200));
 
     return Padding(
       padding: const EdgeInsets.only(top: 24),
@@ -126,7 +129,7 @@ class HomeSection extends StatelessWidget {
                 if (isSeriesSection) {
                   return SizedBox(
                     width: cardWidth,
-                    child: SeriesCard(series: entity),
+                    child: SeriesCard(series: entity, coverAspectRatio: coverAspectRatio),
                   );
                 }
 
@@ -154,6 +157,7 @@ class HomeSection extends StatelessWidget {
                     item: entity,
                     showProgress: isContinueListening,
                     isWide: isContinueListening,
+                    coverAspectRatio: isContinueListening ? 1.0 : coverAspectRatio,
                   ),
                 );
               },

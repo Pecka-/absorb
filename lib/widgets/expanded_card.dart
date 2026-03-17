@@ -91,6 +91,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   List<String> _buttonOrder = PlayerSettings.defaultButtonOrder;
   String _buttonLayout = PlayerSettings.defaultButtonLayout;
   bool _autoRemoveFinished = false;
+  bool _rectangleCovers = false;
 
   // Our own route, captured for popUntil when modals are stacked above us
   Route<dynamic>? _ownRoute;
@@ -184,6 +185,9 @@ class _ExpandedCardState extends State<ExpandedCard> {
     });
     PlayerSettings.getCardButtonLayout().then((l) {
       if (mounted && l != _buttonLayout) setState(() => _buttonLayout = l);
+    });
+    PlayerSettings.getRectangleCovers().then((v) {
+      if (mounted && v != _rectangleCovers) setState(() => _rectangleCovers = v);
     });
   }
 
@@ -574,15 +578,25 @@ class _ExpandedCardState extends State<ExpandedCard> {
                             listenable: ChromecastService(),
                             builder: (context, _) => LayoutBuilder(
                               builder: (context, constraints) {
-                                final coverWidth = constraints.maxWidth * 0.90;
-                                final coverSize = coverWidth < constraints.maxHeight ? coverWidth : constraints.maxHeight;
+                                final maxW = constraints.maxWidth * 0.90;
+                                final maxH = constraints.maxHeight;
+                                double coverW, coverH;
+                                if (_rectangleCovers) {
+                                  coverW = maxW;
+                                  coverH = coverW * 1.5;
+                                  if (coverH > maxH) { coverH = maxH; coverW = coverH / 1.5; }
+                                } else {
+                                  final s = maxW < maxH ? maxW : maxH;
+                                  coverW = s;
+                                  coverH = s;
+                                }
                                 final dlKey = _episodeId != null ? '$_itemId-$_episodeId' : _itemId;
                                 final isDownloaded = DownloadService().isDownloaded(dlKey);
                                 final castService = ChromecastService();
                                 final isCastingThis = castService.isCasting && castService.castingItemId == _itemId;
                                 return Container(
-                                  width: coverSize,
-                                  height: coverSize,
+                                  width: coverW,
+                                  height: coverH,
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(16),
                                     boxShadow: [

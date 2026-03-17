@@ -95,6 +95,10 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
   bool _authorSortAsc = true;
   final _authorsScrollController = ScrollController();
 
+  // ── Cover aspect ratio ──
+  bool _rectangleCovers = false;
+  double get _coverAspectRatio => _rectangleCovers ? 2 / 3 : 1.0;
+
   /// Called externally (e.g. from AppShell) to focus the search field.
   void requestSearchFocus() {
     _focusNode.requestFocus();
@@ -191,6 +195,9 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
     PlayerSettings.getCollapseSeries().then((v) {
       if (mounted) setState(() => _collapseSeries = v);
     });
+    PlayerSettings.getRectangleCovers().then((v) {
+      if (mounted) setState(() => _rectangleCovers = v);
+    });
     _restoreSortFilter().then((_) {
       if (!mounted) return;
       _lastLibraryId = lib.selectedLibraryId;
@@ -273,10 +280,16 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
     Future.wait([
       PlayerSettings.getHideEbookOnly(),
       PlayerSettings.getCollapseSeries(),
+      PlayerSettings.getRectangleCovers(),
     ]).then((values) {
       final newHideEbook = values[0];
       final newCollapse = values[1];
+      final newRectCovers = values[2];
       if (!mounted) return;
+      final coversChanged = newRectCovers != _rectangleCovers;
+      if (coversChanged) {
+        setState(() => _rectangleCovers = newRectCovers);
+      }
       if (newHideEbook != _hideEbookOnly || newCollapse != _collapseSeries) {
         _loadGeneration++;
         setState(() {
@@ -1281,9 +1294,9 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
-          childAspectRatio: 0.68,
+          childAspectRatio: _rectangleCovers ? 0.48 : 0.68,
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
         ),
@@ -1299,9 +1312,9 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
         }
         final item = _items[index];
         if (item.containsKey('collapsedSeries')) {
-          return GridSeriesTile(item: item);
+          return GridSeriesTile(item: item, coverAspectRatio: _coverAspectRatio);
         }
-        return GridBookTile(item: item);
+        return GridBookTile(item: item, coverAspectRatio: _coverAspectRatio);
       },
     ),
     );
@@ -1345,9 +1358,9 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
         controller: _seriesScrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
-          childAspectRatio: 0.68,
+          childAspectRatio: _rectangleCovers ? 0.48 : 0.68,
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
         ),
@@ -1361,7 +1374,7 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
               ),
             );
           }
-          return GridSeriesTileDirect(series: _seriesItems[index]);
+          return GridSeriesTileDirect(series: _seriesItems[index], coverAspectRatio: _coverAspectRatio);
         },
       ),
     );

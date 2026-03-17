@@ -15,8 +15,9 @@ import 'author_books_sheet.dart';
 // ═══════════════════════════════════════════════════════════════
 class GridBookTile extends StatefulWidget {
   final Map<String, dynamic> item;
+  final double coverAspectRatio;
 
-  const GridBookTile({super.key, required this.item});
+  const GridBookTile({super.key, required this.item, this.coverAspectRatio = 1.0});
 
   @override
   State<GridBookTile> createState() => _GridBookTileState();
@@ -70,9 +71,9 @@ class _GridBookTileState extends State<GridBookTile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Cover — 1:1 square
+          // Cover
           AspectRatio(
-            aspectRatio: 1,
+            aspectRatio: widget.coverAspectRatio,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: Stack(
@@ -209,6 +210,7 @@ class _StackedCovers extends StatelessWidget {
   final ColorScheme cs;
   final double seriesProgress;
   final int booksFinished;
+  final double coverAspectRatio;
 
   const _StackedCovers({
     required this.coverUrls,
@@ -217,6 +219,7 @@ class _StackedCovers extends StatelessWidget {
     required this.cs,
     this.seriesProgress = 0,
     this.booksFinished = 0,
+    this.coverAspectRatio = 1.0,
   });
 
   @override
@@ -227,7 +230,7 @@ class _StackedCovers extends StatelessWidget {
     final totalOffset = count > 1 ? inset * (count - 1) : 0.0;
 
     return AspectRatio(
-      aspectRatio: 1,
+      aspectRatio: coverAspectRatio,
       child: Stack(
         children: [
           // Back covers (furthest back first so front paints on top)
@@ -388,7 +391,8 @@ class _StackedCovers extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════
 class GridSeriesTile extends StatelessWidget {
   final Map<String, dynamic> item;
-  const GridSeriesTile({super.key, required this.item});
+  final double coverAspectRatio;
+  const GridSeriesTile({super.key, required this.item, this.coverAspectRatio = 1.0});
 
   @override
   Widget build(BuildContext context) {
@@ -451,6 +455,7 @@ class GridSeriesTile extends StatelessWidget {
             cs: cs,
             seriesProgress: seriesProgress,
             booksFinished: finished,
+            coverAspectRatio: coverAspectRatio,
           ),
           const SizedBox(height: 5),
           Text(
@@ -486,7 +491,8 @@ class GridSeriesTile extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════
 class GridSeriesTileDirect extends StatelessWidget {
   final Map<String, dynamic> series;
-  const GridSeriesTileDirect({super.key, required this.series});
+  final double coverAspectRatio;
+  const GridSeriesTileDirect({super.key, required this.series, this.coverAspectRatio = 1.0});
 
   @override
   Widget build(BuildContext context) {
@@ -557,6 +563,7 @@ class GridSeriesTileDirect extends StatelessWidget {
             cs: cs,
             seriesProgress: seriesProgress,
             booksFinished: finished,
+            coverAspectRatio: coverAspectRatio,
           ),
           const SizedBox(height: 5),
           Text(
