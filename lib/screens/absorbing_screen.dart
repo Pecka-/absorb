@@ -573,7 +573,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                       : books.length == 1
                           ? LayoutBuilder(
                               builder: (context, constraints) {
-                                final vPad = (constraints.maxHeight * 0.04).clamp(12.0, 40.0);
+                                final vPad = (constraints.maxHeight * 0.02).clamp(6.0, 24.0);
                                 return Padding(
                                   padding: EdgeInsets.symmetric(horizontal: 4, vertical: vPad),
                                   child: RepaintBoundary(child: AbsorbingCard(key: ValueKey(_absorbingKey(books[0])), item: books[0], player: _player)),
@@ -589,7 +589,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                           itemBuilder: (_, i) => LayoutBuilder(
                             builder: (context, constraints) {
                               final cardWidth = constraints.maxWidth;
-                              final vPad = (constraints.maxHeight * 0.04).clamp(12.0, 40.0);
+                              final vPad = (constraints.maxHeight * 0.02).clamp(6.0, 24.0);
                               return AnimatedBuilder(
                                 animation: _pageController,
                                 builder: (context, child) {

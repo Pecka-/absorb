@@ -19,7 +19,6 @@ import 'card_buttons.dart';
 import 'sleep_timer_sheet.dart';
 import 'chromecast_button.dart';
 import '../services/chromecast_service.dart';
-import '../services/progress_sync_service.dart';
 import 'expanded_card.dart';
 import '../screens/car_mode_screen.dart';
 import 'notes_sheet.dart';
@@ -45,8 +44,8 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   String? _blurredCoverUrl; // URL the blur was built from
   List<String> _buttonOrder = PlayerSettings.defaultButtonOrder;
   String _buttonLayout = PlayerSettings.defaultButtonLayout;
-  bool _autoRemoveFinished = false;
   bool _rectangleCovers = false;
+  bool _coverPlayButton = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -121,13 +120,6 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     DownloadService().addListener(_onDownloadChanged);
     PlayerSettings.settingsChanged.addListener(_reloadButtonOrder);
     _reloadButtonOrder();
-    _loadWhenFinished();
-  }
-
-  void _loadWhenFinished() {
-    PlayerSettings.getWhenFinished().then((mode) {
-      if (mounted) setState(() => _autoRemoveFinished = mode == 'auto_remove');
-    });
   }
 
   void _reloadButtonOrder() {
@@ -139,6 +131,9 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     });
     PlayerSettings.getRectangleCovers().then((v) {
       if (mounted && v != _rectangleCovers) setState(() => _rectangleCovers = v);
+    });
+    PlayerSettings.getCoverPlayButton().then((v) {
+      if (mounted && v != _coverPlayButton) setState(() => _coverPlayButton = v);
     });
   }
 
@@ -355,14 +350,6 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
         : (_isPodcastEpisode
             ? lib.getEpisodeProgress(_itemId, widget.player.currentEpisodeId!)
             : lib.getProgress(_itemId));
-    final bool isFinished;
-    if (_episodeId != null) {
-      isFinished = lib.getEpisodeProgressData(_itemId, _episodeId!)?['isFinished'] == true;
-    } else if (_isPodcastEpisode) {
-      isFinished = lib.getEpisodeProgressData(_itemId, widget.player.currentEpisodeId!)?['isFinished'] == true;
-    } else {
-      isFinished = lib.getProgressData(_itemId)?['isFinished'] == true;
-    }
     final chapterIdx = _currentChapterIndex();
     final cast = ChromecastService();
     final totalChapters = _isCastingThis ? cast.castingChapters.length : (_isActive ? widget.player.chapters.length : _chapters.length);
@@ -483,6 +470,15 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                           fontWeight: FontWeight.w700, fontSize: compact ? 11 : 14,
                           shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
                         )),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _expandCard(context),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Icon(Icons.open_in_full_rounded, size: compact ? 14 : 17,
+                          color: isDark ? Colors.white.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.5)),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -491,16 +487,17 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty), showChapterBar: false, itemId: _itemId, compact: compact),
               ),
-                SizedBox(height: compact ? 4 : 10),
+                SizedBox(height: compact ? 2 : 6),
                 // ── Cover with title/author/chapter overlaid + download badge ──
-                Flexible(
+                Expanded(
+                  child: Center(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: ListenableBuilder(
                     listenable: ChromecastService(),
                     builder: (context, _) => LayoutBuilder(
                     builder: (context, constraints) {
-                      final maxW = constraints.maxWidth * 0.85;
+                      final maxW = constraints.maxWidth * 0.96;
                       final maxH = constraints.maxHeight;
                       double coverW, coverH;
                       if (_rectangleCovers) {
@@ -516,8 +513,18 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       final isDownloaded = DownloadService().isDownloaded(dlKey);
                       final castService = ChromecastService();
                       final isCastingThis = castService.isCasting && castService.castingItemId == _itemId;
+                      final coverPlaying = isCastingThis ? castService.isPlaying : (_isActive && widget.player.isPlaying);
+                      final coverLoading = _isStarting || (_isActive && widget.player.isLoadingOrBuffering);
                       return GestureDetector(
-                        onTap: () => _expandCard(context),
+                        onTap: _coverPlayButton ? () {
+                          if (isCastingThis) {
+                            castService.togglePlayPause();
+                          } else if (_isActive) {
+                            widget.player.togglePlayPause();
+                          } else {
+                            _startPlayback();
+                          }
+                        } : () => _expandCard(context),
                         child: Container(
                           width: coverW,
                           height: coverH,
@@ -596,91 +603,44 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                     ),
                                   ),
                                 ],
-                                // Finished overlay
-                                if (isFinished && !_autoRemoveFinished) ...[
-                                  Positioned.fill(
-                                    child: Container(
-                                      color: Colors.black.withValues(alpha: 0.78),
+                                // Play/pause overlay
+                                if (_coverPlayButton) Positioned.fill(
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    decoration: BoxDecoration(
+                                      color: coverPlaying ? Colors.transparent : Colors.black.withValues(alpha: 0.25),
                                     ),
-                                  ),
-                                  Positioned.fill(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                                      child: LayoutBuilder(
-                                        builder: (ctx, lc) => FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: SizedBox(
-                                            width: lc.maxWidth,
-                                            child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons.check_circle_rounded, size: 32, color: isDark ? Colors.green.shade400 : Colors.green.shade700),
-                                                const SizedBox(height: 6),
-                                                const Text('Finished',
-                                                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
-                                                const SizedBox(height: 18),
-                                                SizedBox(
-                                                  width: lc.maxWidth,
-                                                  child: GestureDetector(
-                                                    onTap: _listenAgain,
-                                                    child: Container(
-                                                      padding: const EdgeInsets.symmetric(vertical: 9),
-                                                      decoration: BoxDecoration(
-                                                        color: Colors.white.withValues(alpha: 0.18),
-                                                        borderRadius: BorderRadius.circular(11),
-                                                        border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-                                                      ),
-                                                      child: const Text('Listen Again',
-                                                        textAlign: TextAlign.center,
-                                                        style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                                                    ),
-                                                  ),
+                                    child: Center(
+                                      child: coverLoading
+                                          ? Container(
+                                              width: 56, height: 56,
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                color: Colors.black.withValues(alpha: 0.5),
+                                              ),
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(12),
+                                                child: CircularProgressIndicator(strokeWidth: 3, color: accent),
+                                              ),
+                                            )
+                                          : AnimatedOpacity(
+                                              opacity: coverPlaying ? 0.2 : 0.9,
+                                              duration: const Duration(milliseconds: 200),
+                                              child: Container(
+                                                width: 64, height: 64,
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: Colors.black.withValues(alpha: 0.45),
                                                 ),
-                                                const SizedBox(height: 8),
-                                                if (isDownloaded)
-                                                  Padding(
-                                                    padding: const EdgeInsets.only(bottom: 8),
-                                                    child: SizedBox(
-                                                      width: lc.maxWidth,
-                                                      child: GestureDetector(
-                                                        onTap: () => _deleteDownload(dlKey),
-                                                        child: Container(
-                                                          padding: const EdgeInsets.symmetric(vertical: 9),
-                                                          decoration: BoxDecoration(
-                                                            borderRadius: BorderRadius.circular(11),
-                                                            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-                                                          ),
-                                                          child: const Text('Delete Download',
-                                                            textAlign: TextAlign.center,
-                                                            style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                SizedBox(
-                                                  width: lc.maxWidth,
-                                                  child: GestureDetector(
-                                                    onTap: _removeFromAbsorbing,
-                                                    child: Container(
-                                                      padding: const EdgeInsets.symmetric(vertical: 9),
-                                                      decoration: BoxDecoration(
-                                                        borderRadius: BorderRadius.circular(11),
-                                                        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-                                                      ),
-                                                      child: const Text('Remove from Absorbing',
-                                                        textAlign: TextAlign.center,
-                                                        style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
-                                                    ),
-                                                  ),
+                                                child: Icon(
+                                                  coverPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                                  size: 38, color: accent,
                                                 ),
-                                              ],
+                                              ),
                                             ),
-                                          ),
-                                        ),
-                                      ),
                                     ),
                                   ),
-                                ],
+                                ),
                               ],
                             ),
                           ),
@@ -692,38 +652,40 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                   ),
                   ),
                 ),
-                SizedBox(height: compact ? 6 : 16),
-                // ── Chapter pill-scrubber (same width as book bar) ──
+                ),
+                SizedBox(height: compact ? 8 : 16),
+                // ── Chapter pill-scrubber ──
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId, compact: compact),
                 ),
-                // ── Controls + buttons ──
-                Expanded(
-                  child: LayoutBuilder(
-                  builder: (context, lc) {
-                  return FittedBox(
+                // ── Controls ──
+                SizedBox(height: compact ? 6 : 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: CardPlaybackControls(
+                    player: widget.player,
+                    accent: accent,
+                    isActive: _isActive,
+                    isStarting: _isStarting,
+                    onStart: _startPlayback,
+                    itemId: _itemId,
+                    showPlayButton: !_coverPlayButton,
+                  ),
+                ),
+                SizedBox(height: compact ? 6 : 12),
+                // ── Button grid + more menu ──
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: FittedBox(
                     fit: BoxFit.scaleDown,
-                    alignment: Alignment.center,
                     child: SizedBox(
-                      width: lc.maxWidth - 40,
+                      width: cardConstraints.maxWidth - 40,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox(height: compact ? 10 : 18),
-                          CardPlaybackControls(
-                            player: widget.player,
-                            accent: accent,
-                            isActive: _isActive,
-                            isStarting: _isStarting,
-                            onStart: _startPlayback,
-                            itemId: _itemId,
-                          ),
-                          SizedBox(height: compact ? 10 : 18),
-                          // ── Button grid ──
                           ..._buildButtonGrid(accent, tt),
                           const SizedBox(height: 6),
-                          // More menu / Cast controls
                           Center(
                             child: ListenableBuilder(
                               listenable: ChromecastService(),
@@ -766,12 +728,11 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                               },
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          SizedBox(height: compact ? 4 : 8),
                         ],
                       ),
                     ),
-                  );
-                  }),
+                  ),
                 ),
               ],
             );
@@ -878,52 +839,6 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     if (mounted) {
       if (error != null) showErrorSnackBar(context, error);
       setState(() => _isStarting = false);
-    }
-  }
-
-  Future<void> _listenAgain() async {
-    if (_isStarting) return;
-    final cast = ChromecastService();
-    if (cast.isCasting && cast.castingItemId == _itemId) return;
-    setState(() => _isStarting = true);
-    final auth = context.read<AuthProvider>();
-    final api = auth.apiService;
-    if (api == null) { setState(() => _isStarting = false); return; }
-    final lib = context.read<LibraryProvider>();
-    final progressKey = _episodeId != null ? '$_itemId-$_episodeId' : _itemId;
-    if (_episodeId != null) {
-      await api.updateEpisodeProgress(_itemId, _episodeId!,
-          currentTime: 0, duration: _effectiveDuration, isFinished: false);
-    } else {
-      await api.resetProgress(_itemId, _duration);
-    }
-    lib.resetProgressFor(progressKey);
-    // Clear the locally saved position so playItem() doesn't override startTime
-    // back to the end (where it was saved on completion)
-    await ProgressSyncService().deleteLocal(progressKey);
-    final error = await widget.player.playItem(
-      api: api, itemId: _itemId, title: _title, author: _author,
-      coverUrl: _coverUrl, totalDuration: _episodeId != null ? _effectiveDuration : _duration,
-      chapters: _chapters,
-      episodeId: _episodeId,
-      episodeTitle: _recentEpisode?['title'] as String?,
-    );
-    if (mounted) {
-      if (error != null) showErrorSnackBar(context, error);
-      setState(() => _isStarting = false);
-    }
-  }
-
-  void _deleteDownload(String dlKey) {
-    DownloadService().deleteDownload(dlKey);
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(const SnackBar(
-          content: Text('Download removed'),
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ));
     }
   }
 

@@ -23,7 +23,6 @@ class BackupService {
       // Legacy keys for backward compat with older app versions
       'autoPlayNextBook': (await PlayerSettings.getQueueMode()) == 'auto_next',
       'autoPlayNextPodcast': (await PlayerSettings.getQueueMode()) == 'auto_next',
-      'whenFinished': await PlayerSettings.getWhenFinished(),
       'showBookSlider': await PlayerSettings.getShowBookSlider(),
       'speedAdjustedTime': await PlayerSettings.getSpeedAdjustedTime(),
       'forwardSkip': await PlayerSettings.getForwardSkip(),
@@ -69,6 +68,7 @@ class BackupService {
       'startScreen': await PlayerSettings.getStartScreen(),
       'cardButtonLayout': await PlayerSettings.getCardButtonLayout(),
       'rectangleCovers': await PlayerSettings.getRectangleCovers(),
+      'coverPlayButton': await PlayerSettings.getCoverPlayButton(),
     };
 
     // AutoRewind (scoped)
@@ -251,6 +251,7 @@ class BackupService {
     if (s['startScreen'] != null) PlayerSettings.setStartScreen(s['startScreen'] as int);
     if (s['cardButtonLayout'] != null) PlayerSettings.setCardButtonLayout(s['cardButtonLayout'] as String);
     if (s['rectangleCovers'] != null) PlayerSettings.setRectangleCovers(s['rectangleCovers'] as bool);
+    if (s['coverPlayButton'] != null) PlayerSettings.setCoverPlayButton(s['coverPlayButton'] as bool);
 
     // AutoRewind (scoped via save())
     final r = data['autoRewind'] as Map<String, dynamic>?;

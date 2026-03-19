@@ -281,6 +281,9 @@ class PlayerSettings {
   static Future<bool> getRectangleCovers() => _get('rectangleCovers', false);
   static Future<void> setRectangleCovers(bool value) => _set('rectangleCovers', value, notify: true);
 
+  static Future<bool> getCoverPlayButton() => _get('coverPlayButton', false);
+  static Future<void> setCoverPlayButton(bool value) => _set('coverPlayButton', value, notify: true);
+
   // ── Audio focus ──
 
   static Future<bool> getDisableAudioFocus() => _get('disableAudioFocus', false);
@@ -1091,6 +1094,10 @@ class AudioPlayerService extends ChangeNotifier {
   }
   bool get hasBook => _currentItemId != null;
   bool get isPlaying => _player?.playing ?? false;
+  bool get isLoadingOrBuffering {
+    final s = _player?.processingState;
+    return s == ProcessingState.loading || s == ProcessingState.buffering;
+  }
   bool get isOfflineMode => _isOfflineMode;
   double get volume => _player?.volume ?? 1.0;
   Future<void> setVolume(double v) async => _player?.setVolume(v);

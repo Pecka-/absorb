@@ -10,7 +10,6 @@ import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/playback_history_service.dart';
 import '../services/chromecast_service.dart';
-import '../services/progress_sync_service.dart';
 import 'book_detail_sheet.dart';
 import 'episode_list_sheet.dart';
 import 'equalizer_sheet.dart';
@@ -90,8 +89,8 @@ class _ExpandedCardState extends State<ExpandedCard> {
   bool _isPopping = false; // Prevent double-pop and setState during exit
   List<String> _buttonOrder = PlayerSettings.defaultButtonOrder;
   String _buttonLayout = PlayerSettings.defaultButtonLayout;
-  bool _autoRemoveFinished = false;
   bool _rectangleCovers = false;
+  bool _coverPlayButton = false;
 
   // Our own route, captured for popUntil when modals are stacked above us
   Route<dynamic>? _ownRoute;
@@ -166,7 +165,6 @@ class _ExpandedCardState extends State<ExpandedCard> {
     ChromecastService().addListener(_onCastChanged);
     PlayerSettings.settingsChanged.addListener(_reloadButtonOrder);
     _reloadButtonOrder();
-    _loadWhenFinished();
     _startChapterTracking();
     _fetchChaptersIfNeeded();
     // Generate our own blurred cover
@@ -189,11 +187,8 @@ class _ExpandedCardState extends State<ExpandedCard> {
     PlayerSettings.getRectangleCovers().then((v) {
       if (mounted && v != _rectangleCovers) setState(() => _rectangleCovers = v);
     });
-  }
-
-  void _loadWhenFinished() {
-    PlayerSettings.getWhenFinished().then((mode) {
-      if (mounted) setState(() => _autoRemoveFinished = mode == 'auto_remove');
+    PlayerSettings.getCoverPlayButton().then((v) {
+      if (mounted && v != _coverPlayButton) setState(() => _coverPlayButton = v);
     });
   }
 
@@ -558,6 +553,15 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                   fontWeight: FontWeight.w700, fontSize: 15,
                                   shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
                                 )),
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _dismissExpanded,
+                              child: Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Icon(Icons.close_fullscreen_rounded, size: 17,
+                                  color: isDark ? Colors.white.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.5)),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -569,10 +573,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                       const SizedBox(height: 16),
                       // ── Cover art (larger — 90% width) ──
                       Flexible(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: _dismissExpanded,
-                          child: Padding(
+                        child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: ListenableBuilder(
                             listenable: ChromecastService(),
@@ -594,7 +595,19 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                 final isDownloaded = DownloadService().isDownloaded(dlKey);
                                 final castService = ChromecastService();
                                 final isCastingThis = castService.isCasting && castService.castingItemId == _itemId;
-                                return Container(
+                                final coverPlaying = isCastingThis ? castService.isPlaying : (_isActive && widget.player.isPlaying);
+                                final coverLoading = _isStarting || (_isActive && widget.player.isLoadingOrBuffering);
+                                return GestureDetector(
+                                  onTap: _coverPlayButton ? () {
+                                    if (isCastingThis) {
+                                      castService.togglePlayPause();
+                                    } else if (_isActive) {
+                                      widget.player.togglePlayPause();
+                                    } else {
+                                      _startPlayback();
+                                    }
+                                  } : _dismissExpanded,
+                                  child: Container(
                                   width: coverW,
                                   height: coverH,
                                   decoration: BoxDecoration(
@@ -640,6 +653,45 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                                 ),
                                               ),
                                             ),
+                                          // Play/pause overlay
+                                          if (_coverPlayButton && !isCastingThis && !isFinished)
+                                            Positioned.fill(
+                                              child: AnimatedContainer(
+                                                duration: const Duration(milliseconds: 200),
+                                                decoration: BoxDecoration(
+                                                  color: coverPlaying ? Colors.transparent : Colors.black.withValues(alpha: 0.25),
+                                                ),
+                                                child: Center(
+                                                  child: coverLoading
+                                                      ? Container(
+                                                          width: 56, height: 56,
+                                                          decoration: BoxDecoration(
+                                                            shape: BoxShape.circle,
+                                                            color: Colors.black.withValues(alpha: 0.5),
+                                                          ),
+                                                          child: Padding(
+                                                            padding: const EdgeInsets.all(12),
+                                                            child: CircularProgressIndicator(strokeWidth: 3, color: accent),
+                                                          ),
+                                                        )
+                                                      : AnimatedOpacity(
+                                                          opacity: coverPlaying ? 0.2 : 0.9,
+                                                          duration: const Duration(milliseconds: 200),
+                                                          child: Container(
+                                                            width: 64, height: 64,
+                                                            decoration: BoxDecoration(
+                                                              shape: BoxShape.circle,
+                                                              color: Colors.black.withValues(alpha: 0.45),
+                                                            ),
+                                                            child: Icon(
+                                                              coverPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                                              size: 38, color: accent,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                ),
+                                              ),
+                                            ),
                                           // Casting overlay
                                           if (isCastingThis) ...[
                                             Positioned.fill(
@@ -672,74 +724,15 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                               ),
                                             ),
                                           ],
-                                          // Finished overlay
-                                          if (isFinished && !isCastingThis && !_autoRemoveFinished) ...[
-                                            Positioned.fill(
-                                              child: Container(color: Colors.black.withValues(alpha: 0.78)),
-                                            ),
-                                            Positioned.fill(
-                                              child: Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 14),
-                                                child: Column(
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  children: [
-                                                    Icon(Icons.check_circle_rounded, size: 32, color: isDark ? Colors.green.shade400 : Colors.green.shade700),
-                                                    const SizedBox(height: 6),
-                                                    const Text('Finished',
-                                                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
-                                                    const SizedBox(height: 18),
-                                                    SizedBox(
-                                                      width: double.infinity,
-                                                      child: GestureDetector(
-                                                        onTap: _listenAgain,
-                                                        child: Container(
-                                                          padding: const EdgeInsets.symmetric(vertical: 9),
-                                                          decoration: BoxDecoration(
-                                                            color: Colors.white.withValues(alpha: 0.18),
-                                                            borderRadius: BorderRadius.circular(11),
-                                                            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-                                                          ),
-                                                          child: const Text('Listen Again',
-                                                            textAlign: TextAlign.center,
-                                                            style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    const SizedBox(height: 8),
-                                                    SizedBox(
-                                                      width: double.infinity,
-                                                      child: GestureDetector(
-                                                        onTap: () {
-                                                          _removeFromAbsorbing();
-                                                          _dismissExpanded();
-                                                        },
-                                                        child: Container(
-                                                          padding: const EdgeInsets.symmetric(vertical: 9),
-                                                          decoration: BoxDecoration(
-                                                            borderRadius: BorderRadius.circular(11),
-                                                            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-                                                          ),
-                                                          child: const Text('Remove',
-                                                            textAlign: TextAlign.center,
-                                                            style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                          ],
                                         ],
                                       ),
                                     ),
                                   ),
-                                );
+                                ));
                               },
                             ),
                           ),
                         ),
-                      ),
                       ),
                       const SizedBox(height: 24),
                       // ── Chapter scrubber ──
@@ -767,6 +760,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                       isStarting: _isStarting,
                                       onStart: _startPlayback,
                                       itemId: _itemId,
+                                      showPlayButton: !_coverPlayButton,
                                     ),
                                     const SizedBox(height: 24),
                                     // ── Button grid ──
@@ -956,28 +950,6 @@ class _ExpandedCardState extends State<ExpandedCard> {
       coverUrl: _coverUrl, totalDuration: _effectiveDuration, chapters: _chapters,
       episodeId: _episodeId,
       episodeTitle: _recentEpisode?['title'] as String?,
-    );
-    if (mounted) {
-      if (error != null) showErrorSnackBar(context, error);
-      setState(() => _isStarting = false);
-    }
-  }
-
-  Future<void> _listenAgain() async {
-    if (_isStarting) return;
-    final cast = ChromecastService();
-    if (cast.isCasting && cast.castingItemId == _itemId) return;
-    setState(() => _isStarting = true);
-    final auth = context.read<AuthProvider>();
-    final api = auth.apiService;
-    if (api == null) { setState(() => _isStarting = false); return; }
-    final lib = context.read<LibraryProvider>();
-    await api.resetProgress(_itemId, _duration);
-    lib.resetProgressFor(_itemId);
-    await ProgressSyncService().deleteLocal(_itemId);
-    final error = await widget.player.playItem(
-      api: api, itemId: _itemId, title: _title, author: _author,
-      coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
     );
     if (mounted) {
       if (error != null) showErrorSnackBar(context, error);
