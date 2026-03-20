@@ -438,15 +438,33 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   /// Subscribe to the player's playback event stream and forward state to
   /// the system MediaSession. If the stream errors or completes unexpectedly,
   /// re-subscribe so system media controls stay alive.
+  /// Rate-limited to prevent infinite error loops (e.g. multi-channel audio).
+  int _resubscribeCount = 0;
+  DateTime _lastResubscribe = DateTime.now();
+
   void _subscribePlaybackEvents() {
     _player.playbackEventStream.map(_transformEvent).listen(
-      playbackState.add,
+      (state) {
+        playbackState.add(state);
+        // Reset error counter on successful events
+        _resubscribeCount = 0;
+      },
       onError: (Object e, StackTrace st) {
-        debugPrint('[Player] playbackEvent error - re-subscribing: $e');
-        // Push the last known good state so the notification doesn't go stale
-        refreshPlaybackState();
-        // Re-subscribe so future events still reach the MediaSession
-        _subscribePlaybackEvents();
+        final now = DateTime.now();
+        // Reset counter if it's been more than 5 seconds since last error
+        if (now.difference(_lastResubscribe).inSeconds > 5) {
+          _resubscribeCount = 0;
+        }
+        _lastResubscribe = now;
+        _resubscribeCount++;
+
+        if (_resubscribeCount <= 3) {
+          debugPrint('[Player] playbackEvent error ($_resubscribeCount/3) - re-subscribing: $e');
+          refreshPlaybackState();
+          _subscribePlaybackEvents();
+        } else {
+          debugPrint('[Player] playbackEvent error - too many rapid failures, stopping re-subscribe: $e');
+        }
       },
       onDone: () {
         debugPrint('[Player] playbackEvent stream completed - re-subscribing');

@@ -45,6 +45,8 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
   @override
   void initState() {
     super.initState();
+    _lastSeenHasBook = _player.hasBook;
+    _lastSeenIsPlaying = _player.isPlaying;
     _player.addListener(_rebuild);
     _cast.addListener(_rebuild);
     _restoreLastFinished();
@@ -83,10 +85,18 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
   // slide to the beginning rather than the list instantly reordering underneath them.
   bool _suppressReorder = false;
   bool _mergeLibraries = false;
+  bool? _lastSeenHasBook;
+  bool? _lastSeenIsPlaying;
 
   void _rebuild() {
     if (!mounted) return;
-    _loadMergeLibraries(); // refresh in case setting changed
+
+    final hasBookChanged = _player.hasBook != _lastSeenHasBook;
+    final isPlayingChanged = _player.isPlaying != _lastSeenIsPlaying;
+    _lastSeenHasBook = _player.hasBook;
+    _lastSeenIsPlaying = _player.isPlaying;
+    var shouldRebuild = hasBookChanged || isPlayingChanged;
+
     // Detect item or episode change (same show, different episode counts as a change)
     final itemChanged = _player.currentItemId != _lastPlayingId;
     final episodeChanged = _player.currentEpisodeId != _lastPlayingEpisodeId;
@@ -131,6 +141,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
         _lastFinishedId = finishedKey;
         ScopedPrefs.setString('absorbing_last_finished', finishedKey);
       }
+      shouldRebuild = true;
     }
 
     // Track cast state — when casting starts, scroll to the card;
@@ -153,9 +164,12 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
       _lastCastItemId = null;
       _lastCastEpisodeId = null;
     }
+    final castChanged = nowCasting != _wasCasting;
     _wasCasting = nowCasting;
 
-    setState(() {});
+    if (shouldRebuild || castChanged) {
+      setState(() {});
+    }
   }
 
   void _scrollToActiveCard({int retries = 2}) {
