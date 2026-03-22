@@ -1,5 +1,3 @@
-<!-- .github/ISSUE_TEMPLATE/feature_request.md -->
-
 ---
 name: Feature Request
 about: Suggest a new feature or improvement
