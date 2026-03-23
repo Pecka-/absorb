@@ -206,6 +206,8 @@ class PlayerSettings {
 
   static Future<int> getSleepRewindSeconds() => _get('sleepRewindSeconds', 0);
   static Future<void> setSleepRewindSeconds(int seconds) => _set('sleepRewindSeconds', seconds);
+  static Future<int> getSleepTimerTab() => _get('sleepTimerTab', 0);
+  static Future<void> setSleepTimerTab(int tab) => _set('sleepTimerTab', tab);
 
   static Future<bool> getHideEbookOnly() => _get('hideEbookOnly', false);
   static Future<void> setHideEbookOnly(bool value) => _set('hideEbookOnly', value, notify: true);
@@ -508,6 +510,8 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
+        MediaAction.skipToNext,
+        MediaAction.skipToPrevious,
         MediaAction.skipToQueueItem,
       },
       androidCompactActionIndices: compactIndices,
@@ -733,6 +737,18 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       _clickTimer!.cancel();
       _clickCount = 0;
     }
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    debugPrint('[Handler] skipToNext() - seeking forward');
+    await fastForward();
+  }
+
+  @override
+  Future<void> skipToPrevious() async {
+    debugPrint('[Handler] skipToPrevious() - seeking back');
+    await rewind();
   }
 
   @override
@@ -1013,6 +1029,12 @@ class AudioPlayerService extends ChangeNotifier {
   int _streamRetryCount = 0;
   static const _maxStreamRetries = 3;
   bool _retryInProgress = false;
+  // ── Stuck position detection (xHE-AAC/USAC iOS seek failures) ──
+  Timer? _stuckCheckTimer;
+  double _stuckCheckLastPosition = -1;
+  int _stuckConsecutiveCount = 0; // consecutive checks with no advancement
+  int _stuckReseekAttempts = 0; // how many re-seeks we've tried
+  static const _maxStuckReseekAttempts = 2;
   // ── Multi-file track offset tracking ──
   // For ConcatenatingAudioSource, _player.position is track-relative.
   // We store cumulative start offsets so we can compute absolute book position.
@@ -2048,6 +2070,9 @@ class AudioPlayerService extends ChangeNotifier {
     _eqSessionSub = null;
     _streamRetryCount = 0;
     _retryInProgress = false;
+    _stuckCheckTimer?.cancel();
+    _stuckCheckTimer = null;
+    _resetStuckDetection();
     _noisyPause = false;
     notifyListeners();
   }
@@ -2307,6 +2332,69 @@ class AudioPlayerService extends ChangeNotifier {
     }, onError: (Object e, StackTrace st) {
       debugPrint('[Player] Position stream error: $e');
       _attemptStreamRetry(e);
+    });
+
+    // Start stuck position detection (xHE-AAC/USAC iOS seek failures)
+    _startStuckDetection();
+  }
+
+  /// Reset stuck detection state - call on manual seek or when position advances.
+  void _resetStuckDetection() {
+    _stuckConsecutiveCount = 0;
+    _stuckReseekAttempts = 0;
+    _stuckCheckLastPosition = -1;
+  }
+
+  /// Start a periodic timer that checks if playback position is advancing.
+  /// If position is stuck for ~6 seconds while playing (2 consecutive checks),
+  /// force a re-seek to the same position to kick the iOS decoder.
+  void _startStuckDetection() {
+    _stuckCheckTimer?.cancel();
+    _resetStuckDetection();
+
+    _stuckCheckTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      // Only check while actively playing
+      if (_player == null || !_player!.playing) {
+        _stuckCheckLastPosition = -1;
+        _stuckConsecutiveCount = 0;
+        return;
+      }
+
+      // Don't check during loading/buffering
+      final state = _player!.processingState;
+      if (state == ProcessingState.loading || state == ProcessingState.buffering) {
+        return;
+      }
+
+      // Give up after max re-seek attempts to avoid infinite loops
+      if (_stuckReseekAttempts >= _maxStuckReseekAttempts) return;
+
+      final currentPos = position.inMilliseconds / 1000.0;
+      if (currentPos <= 0) return;
+
+      if (_stuckCheckLastPosition >= 0) {
+        // Check if position has advanced (allow small tolerance for rounding)
+        final advanced = (currentPos - _stuckCheckLastPosition).abs() > 0.1;
+        if (advanced) {
+          // Position is moving - reset counters
+          _stuckConsecutiveCount = 0;
+          _stuckReseekAttempts = 0;
+        } else {
+          // Position hasn't moved
+          _stuckConsecutiveCount++;
+          if (_stuckConsecutiveCount >= 2) {
+            // Stuck for ~6 seconds - force re-seek
+            _stuckReseekAttempts++;
+            _stuckConsecutiveCount = 0;
+            debugPrint('[Player] Stuck position detected - re-seeking '
+                '(attempt $_stuckReseekAttempts/$_maxStuckReseekAttempts '
+                'at ${currentPos.toStringAsFixed(1)}s)');
+            await _seekAbsolute(currentPos);
+          }
+        }
+      }
+
+      _stuckCheckLastPosition = currentPos;
     });
   }
 
@@ -2574,6 +2662,7 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   Future<void> seekTo(Duration pos) async {
+    _resetStuckDetection();
     final from = position;
     await _seekAbsolute(pos.inMilliseconds / 1000.0);
     _logEvent(PlaybackEventType.seek,
@@ -2584,6 +2673,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> skipForward([int seconds = 30]) async {
     if (_player == null) return;
+    _resetStuckDetection();
     debugPrint('[Service] skipForward(${seconds}s) — playing=${_player!.playing}');
     final newPos = position + Duration(seconds: seconds);
     await _seekAbsolute(newPos.inMilliseconds / 1000.0);
@@ -2595,6 +2685,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> skipBackward([int seconds = 10]) async {
     if (_player == null) return;
+    _resetStuckDetection();
     final posS = position.inMilliseconds / 1000.0;
     final targetS = posS - seconds;
 
@@ -2631,6 +2722,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> skipToNextChapter() async {
     if (_player == null || _chapters.isEmpty) return;
+    _resetStuckDetection();
     final posS = position.inMilliseconds / 1000.0;
     for (int i = 0; i < _chapters.length; i++) {
       final start = (_chapters[i]['start'] as num?)?.toDouble() ?? 0;
@@ -2646,6 +2738,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> skipToPreviousChapter() async {
     if (_player == null || _chapters.isEmpty) return;
+    _resetStuckDetection();
     final posS = position.inMilliseconds / 1000.0;
     // If more than 3s into current chapter, go to start of current chapter
     // Otherwise go to previous chapter
@@ -2755,6 +2848,7 @@ class AudioPlayerService extends ChangeNotifier {
     _syncSub?.cancel();
     _bgSaveTimer?.cancel();
     _pauseStopTimer?.cancel();
+    _stuckCheckTimer?.cancel();
     _indexSub?.cancel();
     _player?.dispose();
     super.dispose();

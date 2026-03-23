@@ -42,6 +42,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
       PlayerSettings.getSleepTimerMinutes(),
       PlayerSettings.getSleepTimerChapters(),
       PlayerSettings.getSleepRewindSeconds(),
+      PlayerSettings.getSleepTimerTab(),
     ]);
     if (mounted) setState(() {
       _shakeMode = results[0] as String;
@@ -49,6 +50,7 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
       _customMinutes = (results[2] as int).toDouble();
       _customChapters = results[3] as int;
       _sleepRewindSeconds = results[4] as int;
+      _tabIndex = results[5] as int;
     });
   }
 
@@ -199,6 +201,10 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
       const SizedBox(height: 12),
       Container(height: 0.5, color: cs.onSurface.withValues(alpha: 0.08)),
       const SizedBox(height: 12),
+      _buildRewindSection(accent, tt),
+      const SizedBox(height: 12),
+      Container(height: 0.5, color: cs.onSurface.withValues(alpha: 0.08)),
+      const SizedBox(height: 12),
       _buildShakeToggle(accent, tt),
     ]);
   }
@@ -208,7 +214,10 @@ class _SleepTimerSheetState extends State<SleepTimerSheet> {
     final selected = _tabIndex == index;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _tabIndex = index),
+        onTap: () {
+          setState(() => _tabIndex = index);
+          PlayerSettings.setSleepTimerTab(index);
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 10),

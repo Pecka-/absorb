@@ -91,6 +91,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   String _buttonLayout = PlayerSettings.defaultButtonLayout;
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
+  bool _speedAdjustedTime = true;
 
   // Our own route, captured for popUntil when modals are stacked above us
   Route<dynamic>? _ownRoute;
@@ -189,6 +190,9 @@ class _ExpandedCardState extends State<ExpandedCard> {
     });
     PlayerSettings.getCoverPlayButton().then((v) {
       if (mounted && v != _coverPlayButton) setState(() => _coverPlayButton = v);
+    });
+    PlayerSettings.getSpeedAdjustedTime().then((v) {
+      if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
     });
   }
 
@@ -1320,14 +1324,14 @@ class _ExpandedCardState extends State<ExpandedCard> {
                     ? Icon(Icons.check_rounded, size: 16, color: cs.onSurfaceVariant.withValues(alpha: 0.4))
                     : Text('${i + 1}', textAlign: TextAlign.center,
                         style: tt.labelMedium?.copyWith(fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w400, color: isCurrent ? accent : cs.onSurfaceVariant))),
-                  title: Text(chTitle, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  title: Text(chTitle,
                     style: tt.bodyMedium?.copyWith(fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w400,
                       color: isCurrent ? cs.onSurface : isFinished ? cs.onSurface.withValues(alpha: 0.4) : cs.onSurface.withValues(alpha: 0.7))),
                   trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                     Text('$pct%', style: tt.labelSmall?.copyWith(
                       color: isCurrent ? accent.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.24), fontSize: 10, fontWeight: FontWeight.w600)),
                     const SizedBox(width: 8),
-                    Text(_fmtDur(end - start), style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    Text(_fmtDur((end - start) / (_speedAdjustedTime && _isActive ? widget.player.speed : 1.0)), style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   ]),
                   onTap: _isPlaybackActive ? () {
                     final seekDur = Duration(seconds: start.round());
