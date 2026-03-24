@@ -62,6 +62,8 @@ class PlayerSettings {
     // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
     settingsChanged.notifyListeners();
   }
+  /// Public trigger for external callers that save settings directly.
+  static void notifySettingsChanged() => _notify();
 
   // ── Private helpers to eliminate boilerplate ──
 

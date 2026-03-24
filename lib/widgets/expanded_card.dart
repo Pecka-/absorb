@@ -658,7 +658,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                                 child: Center(
                                                   child: coverLoading
                                                       ? Container(
-                                                          width: 56, height: 56,
+                                                          width: 70, height: 70,
                                                           decoration: BoxDecoration(
                                                             shape: BoxShape.circle,
                                                             color: Colors.black.withValues(alpha: 0.5),
@@ -672,14 +672,14 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                                           opacity: coverPlaying ? 0.2 : 0.9,
                                                           duration: const Duration(milliseconds: 200),
                                                           child: Container(
-                                                            width: 64, height: 64,
+                                                            width: 76, height: 76,
                                                             decoration: BoxDecoration(
                                                               shape: BoxShape.circle,
                                                               color: Colors.black.withValues(alpha: 0.45),
                                                             ),
                                                             child: Icon(
                                                               coverPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                                              size: 38, color: accent,
+                                                              size: 44, color: accent,
                                                             ),
                                                           ),
                                                         ),
@@ -753,6 +753,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                       onStart: _startPlayback,
                                       itemId: _itemId,
                                       showPlayButton: !_coverPlayButton,
+                                      playButtonSize: 70,
                                     ),
                                     SizedBox(height: compact ? 8 : 24),
                                     // ── Button grid ──
@@ -1104,7 +1105,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
       case 'speed':
         return MoreMenuItem(
           icon: Icons.speed_rounded, label: 'Speed', accent: accent,
-          enabled: _isPlaybackActive,
+          enabled: true,
           onTap: () {
             Navigator.pop(ctx);
             showModalBottomSheet(context: context, backgroundColor: Colors.transparent, useSafeArea: true,

@@ -48,6 +48,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
   bool _speedAdjustedTime = true;
+  double _savedSpeed = 1.0; // per-book or default speed for inactive display
   final ValueNotifier<bool> _edgeBarExpanded = ValueNotifier(false);
 
   @override
@@ -125,6 +126,14 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     _reloadButtonOrder();
   }
 
+  void _onSpeedMaybeChanged() => _loadSavedSpeed();
+
+  Future<void> _loadSavedSpeed() async {
+    final bookSpeed = await PlayerSettings.getBookSpeed(_itemId);
+    final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+    if (mounted && speed != _savedSpeed) setState(() => _savedSpeed = speed);
+  }
+
   void _reloadButtonOrder() {
     PlayerSettings.getCardButtonOrder().then((o) {
       if (mounted && o.join(',') != _buttonOrder.join(',')) setState(() => _buttonOrder = o);
@@ -141,6 +150,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     PlayerSettings.getSpeedAdjustedTime().then((v) {
       if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
     });
+    _loadSavedSpeed();
   }
 
   void _onDownloadChanged() { if (mounted) setState(() {}); }
@@ -263,6 +273,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     PlayerSettings.settingsChanged.removeListener(_reloadButtonOrder);
     ChromecastService().removeListener(_onCastChanged);
     DownloadService().removeListener(_onDownloadChanged);
+    widget.player.removeListener(_onSpeedMaybeChanged);
     _chapterTrackSub?.cancel();
     _blurredCover?.dispose();
     _edgeBarExpanded.dispose();
@@ -489,7 +500,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                         final ct = (pd?['currentTime'] as num?)?.toDouble();
                         pos = (ct != null && ct > 0) ? ct : bookProgress * _effectiveDuration;
                       }
-                      final speed = _speedAdjustedTime && _isActive ? widget.player.speed : 1.0;
+                      final speed = _speedAdjustedTime ? (_isActive ? widget.player.speed : _savedSpeed) : 1.0;
                       final elapsed = pos / speed;
                       final remaining = (_effectiveDuration - pos) / speed;
                       final timeStyle = tt.labelSmall?.copyWith(
@@ -641,7 +652,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                     child: Center(
                                       child: coverLoading
                                           ? Container(
-                                              width: 56, height: 56,
+                                              width: 65, height: 65,
                                               decoration: BoxDecoration(
                                                 shape: BoxShape.circle,
                                                 color: Colors.black.withValues(alpha: 0.5),
@@ -655,14 +666,14 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                               opacity: coverPlaying ? 0.2 : 0.9,
                                               duration: const Duration(milliseconds: 200),
                                               child: Container(
-                                                width: 64, height: 64,
+                                                width: 72, height: 72,
                                                 decoration: BoxDecoration(
                                                   shape: BoxShape.circle,
                                                   color: Colors.black.withValues(alpha: 0.45),
                                                 ),
                                                 child: Icon(
                                                   coverPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                                  size: 38, color: accent,
+                                                  size: 42, color: accent,
                                                 ),
                                               ),
                                             ),
@@ -1049,7 +1060,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       case 'speed':
         return MoreMenuItem(
           icon: Icons.speed_rounded, label: 'Speed', accent: accent,
-          enabled: _isPlaybackActive,
+          enabled: true,
           onTap: () {
             Navigator.pop(ctx);
             showModalBottomSheet(context: context, backgroundColor: Colors.transparent, useSafeArea: true,
@@ -1284,7 +1295,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     Text('$pct%', style: tt.labelSmall?.copyWith(
                       color: isCurrent ? accent.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.24), fontSize: 10, fontWeight: FontWeight.w600)),
                     const SizedBox(width: 8),
-                    Text(_fmtDur((end - start) / (_speedAdjustedTime && _isActive ? widget.player.speed : 1.0)), style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    Text(_fmtDur((end - start) / (_speedAdjustedTime ? (_isActive ? widget.player.speed : _savedSpeed) : 1.0)), style: tt.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   ]),
                   onTap: _isPlaybackActive ? () {
                     final seekDur = Duration(seconds: start.round());

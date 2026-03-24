@@ -308,7 +308,7 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
 }
 
 /// Speed button as wide card — opens the full speed sheet with slider
-class CardSpeedButtonInline extends StatelessWidget {
+class CardSpeedButtonInline extends StatefulWidget {
   final AudioPlayerService player;
   final Color accent;
   final bool isActive;
@@ -317,25 +317,50 @@ class CardSpeedButtonInline extends StatelessWidget {
   final String? itemId;
   const CardSpeedButtonInline({super.key, required this.player, required this.accent, required this.isActive, this.large = false, this.compact = false, this.itemId});
 
+  @override State<CardSpeedButtonInline> createState() => _CardSpeedButtonInlineState();
+}
+
+class _CardSpeedButtonInlineState extends State<CardSpeedButtonInline> {
+  double _savedSpeed = 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedSpeed();
+    PlayerSettings.settingsChanged.addListener(_loadSavedSpeed);
+  }
+
+  @override
+  void dispose() {
+    PlayerSettings.settingsChanged.removeListener(_loadSavedSpeed);
+    super.dispose();
+  }
+
+  Future<void> _loadSavedSpeed() async {
+    if (widget.itemId == null) return;
+    final bookSpeed = await PlayerSettings.getBookSpeed(widget.itemId!);
+    final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+    if (mounted && speed != _savedSpeed) setState(() => _savedSpeed = speed);
+  }
+
   @override Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final cast = ChromecastService();
-    final h = compact ? 30.0 : (large ? 48.0 : 36.0);
-    final iconSz = compact ? 13.0 : (large ? 20.0 : 16.0);
-    final fontSize = compact ? 10.0 : (large ? 15.0 : 13.0);
-    final radius = compact ? 10.0 : (large ? 16.0 : 14.0);
+    final h = widget.compact ? 30.0 : (widget.large ? 48.0 : 36.0);
+    final iconSz = widget.compact ? 13.0 : (widget.large ? 20.0 : 16.0);
+    final fontSize = widget.compact ? 10.0 : (widget.large ? 15.0 : 13.0);
+    final radius = widget.compact ? 10.0 : (widget.large ? 16.0 : 14.0);
     return ListenableBuilder(
-      listenable: Listenable.merge([cast, player]),
+      listenable: Listenable.merge([cast, widget.player]),
       builder: (context, _) {
-        final castNow = itemId != null && cast.isCasting && cast.castingItemId == itemId;
-        final enabledNow = isActive || castNow;
-        final speedNow = castNow ? cast.castSpeed : player.speed;
+        final castNow = widget.itemId != null && cast.isCasting && cast.castingItemId == widget.itemId;
+        final speedNow = castNow ? cast.castSpeed : (widget.isActive ? widget.player.speed : _savedSpeed);
         return GestureDetector(
-          onTap: enabledNow ? () {
+          onTap: () {
             showModalBottomSheet(context: context, backgroundColor: Colors.transparent,
               useSafeArea: true,
-              builder: (ctx) => CardSpeedSheet(player: player, accent: accent, itemId: itemId));
-          } : () => showInactiveToast(context),
+              builder: (ctx) => CardSpeedSheet(player: widget.player, accent: widget.accent, itemId: widget.itemId));
+          },
           child: Container(
             height: h,
             decoration: BoxDecoration(
@@ -343,18 +368,18 @@ class CardSpeedButtonInline extends StatelessWidget {
               borderRadius: BorderRadius.circular(radius),
               border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
             ),
-            child: compact
+            child: widget.compact
               ? Center(child: Text('${speedNow.toStringAsFixed(1)}x', style: TextStyle(
-                  color: enabledNow ? accent : cs.onSurface.withValues(alpha: 0.24),
+                  color: widget.accent,
                   fontSize: fontSize, fontWeight: FontWeight.w700)))
               : Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.speed_rounded, size: iconSz,
-                      color: enabledNow ? accent : cs.onSurface.withValues(alpha: 0.24)),
+                      color: widget.accent),
                     const SizedBox(width: 8),
                     Text('${speedNow.toStringAsFixed(2)}x', style: TextStyle(
-                      color: enabledNow ? accent : cs.onSurface.withValues(alpha: 0.24),
+                      color: widget.accent,
                       fontSize: fontSize, fontWeight: FontWeight.w700)),
                   ],
                 ),
@@ -386,14 +411,27 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
     super.initState();
     final initialSpeed = _isCasting ? ChromecastService().castSpeed : widget.player.speed;
     _speed = (initialSpeed * 20).round() / 20.0;
+    if (!widget.player.hasBook && !_isCasting) _loadSavedSpeed();
+  }
+
+  Future<void> _loadSavedSpeed() async {
+    if (widget.itemId == null) return;
+    final bookSpeed = await PlayerSettings.getBookSpeed(widget.itemId!);
+    final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+    if (mounted) setState(() => _speed = (speed * 20).round() / 20.0);
   }
   void _setSpeed(double v) {
     final s = (v * 20).round() / 20.0;
     setState(() => _speed = s.clamp(0.5, 3.0));
     if (_isCasting) {
       ChromecastService().setSpeed(_speed);
-    } else {
+    } else if (widget.player.hasBook) {
       widget.player.setSpeed(_speed);
+    }
+    // Always save per-book speed so inactive cards pick it up
+    if (widget.itemId != null) {
+      PlayerSettings.setBookSpeed(widget.itemId!, _speed);
+      PlayerSettings.notifySettingsChanged();
     }
   }
 

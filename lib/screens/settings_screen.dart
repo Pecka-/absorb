@@ -1024,9 +1024,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     SwitchListTile(
                       title: Row(children: [
                         const Expanded(child: Text('Chapter barrier on rewind')),
-                        Tooltip(
-                          message: 'When skipping back, snap to the chapter start instead of crossing it.\nDouble-tap within 2 seconds to break through.',
-                          child: Icon(Icons.info_outline_rounded, size: 18, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                        GestureDetector(
+                          onTap: () => showDialog(
+                            context: context,
+                            builder: (_) => AlertDialog(
+                              title: const Text('Chapter barrier'),
+                              content: const Text('When skipping back, the playback will snap to the start of the current chapter instead of crossing into the previous one.\n\nDouble-tap the skip back button within 2 seconds to break through the barrier.'),
+                              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Got it'))],
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(Icons.info_outline_rounded, size: 18, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                          ),
                         ),
                       ]),
                       subtitle: Text(
