@@ -47,6 +47,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
 
 
   final _cast = ChromecastService();
+  String _queueMode = 'off';
 
   @override
   void initState() {
@@ -57,6 +58,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
     _cast.addListener(_rebuild);
     _restoreLastFinished();
     _loadMergeLibraries();
+    _loadQueueMode();
   }
 
   Future<void> _restoreLastFinished() async {
@@ -69,6 +71,14 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
   Future<void> _loadMergeLibraries() async {
     final v = await PlayerSettings.getMergeAbsorbingLibraries();
     if (mounted && v != _mergeLibraries) setState(() => _mergeLibraries = v);
+  }
+
+  Future<void> _loadQueueMode() async {
+    final lib = context.read<LibraryProvider>();
+    final mode = lib.isPodcastLibrary
+        ? await PlayerSettings.getPodcastQueueMode()
+        : await PlayerSettings.getBookQueueMode();
+    if (mounted && mode != _queueMode) setState(() => _queueMode = mode);
   }
 
   @override
@@ -328,7 +338,10 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
       final cached = cache[key];
       if (cached != null) {
         final itemLibId = cached['libraryId'] as String?;
-        if (_mergeLibraries || selectedLibraryId == null || itemLibId == null || itemLibId == selectedLibraryId) {
+        final mediaType = cached['mediaType'] as String?;
+        final isPodItem = mediaType == 'podcast' || key.length > 36;
+        if (_mergeLibraries || selectedLibraryId == null ||
+            (itemLibId != null ? itemLibId == selectedLibraryId : isPodItem == lib.isPodcastLibrary)) {
           items.add(cached);
         } else {
           skippedKeys[key] = 'wrong library (item=$itemLibId, selected=$selectedLibraryId)';
@@ -423,6 +436,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
   @override
   Widget build(BuildContext context) {
     _loadMergeLibraries(); // refresh in case setting changed
+    _loadQueueMode(); // refresh for current library type
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final scaffoldBg = Theme.of(context).scaffoldBackgroundColor;
@@ -556,13 +570,22 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                 GestureDetector(
                   onTap: () => _showReorderSheet(context, lib, books),
                   child: Container(
-                    padding: const EdgeInsets.all(6),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                     decoration: BoxDecoration(
                       color: subtleBg,
-                      shape: BoxShape.circle,
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: subtleBorder),
                     ),
-                    child: Icon(Icons.reorder_rounded, size: 18, color: muted),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.reorder_rounded, size: 18, color: muted),
+                      if (_queueMode != 'off') ...[
+                        const SizedBox(width: 4),
+                        Text(
+                          _queueMode == 'auto_next' ? 'Auto' : 'Manual',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: cs.primary),
+                        ),
+                      ],
+                    ]),
                   ),
                 ),
               ],
@@ -691,6 +714,17 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
           books: books,
           lib: lib,
           absorbingKeyFn: _absorbingKey,
+          queueMode: _queueMode,
+          onQueueModeChanged: (mode) {
+            setState(() => _queueMode = mode);
+            final isPod = lib.isPodcastLibrary;
+            if (isPod) {
+              PlayerSettings.setPodcastQueueMode(mode);
+            } else {
+              PlayerSettings.setBookQueueMode(mode);
+            }
+            PlayerSettings.notifySettingsChanged();
+          },
         ),
       ),
     );
@@ -760,12 +794,16 @@ class _ReorderAbsorbingSheet extends StatefulWidget {
   final List<Map<String, dynamic>> books;
   final LibraryProvider lib;
   final String Function(Map<String, dynamic>) absorbingKeyFn;
+  final String queueMode;
+  final ValueChanged<String> onQueueModeChanged;
 
   const _ReorderAbsorbingSheet({
     required this.keys,
     required this.books,
     required this.lib,
     required this.absorbingKeyFn,
+    required this.queueMode,
+    required this.onQueueModeChanged,
   });
 
   @override
@@ -775,6 +813,7 @@ class _ReorderAbsorbingSheet extends StatefulWidget {
 class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
   late List<String> _order;
   late Map<String, Map<String, dynamic>> _booksByKey;
+  late String _queueMode;
 
   @override
   void initState() {
@@ -783,6 +822,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
     _booksByKey = {
       for (final b in widget.books) widget.absorbingKeyFn(b): b,
     };
+    _queueMode = widget.queueMode;
   }
 
   @override
@@ -820,6 +860,26 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
               child: const Text('Done'),
             ),
           ]),
+        ),
+        // Queue mode toggle
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded, size: 16), label: Text('Off')),
+              ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded, size: 16), label: Text('Manual')),
+              ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded, size: 16), label: Text('Auto')),
+            ],
+            selected: {_queueMode},
+            onSelectionChanged: (v) {
+              setState(() => _queueMode = v.first);
+              widget.onQueueModeChanged(v.first);
+            },
+            style: ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
         ),
         Expanded(
           child: ReorderableListView.builder(

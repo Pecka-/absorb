@@ -3280,6 +3280,7 @@ class LibraryProvider extends ChangeNotifier {
         _absorbingIdsAdd(key, atFront: true);
         _absorbingItemCache[key] = {
           'id': itemId,
+          'libraryId': item['libraryId'] as String?,
           'mediaType': 'podcast',
           '_absorbingKey': key,
           'recentEpisode': epMap,
