@@ -345,8 +345,9 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
           SliverPadding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPad),
             sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.55,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: (MediaQuery.of(context).size.width / 130).floor().clamp(3, 10),
+                mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.55,
               ),
               delegate: SliverChildBuilderDelegate((_, i) {
                 final item = collapsed[i];
@@ -370,8 +371,9 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.55,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: (MediaQuery.of(context).size.width / 130).floor().clamp(3, 10),
+                mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.55,
               ),
               delegate: SliverChildBuilderDelegate(
                 (_, i) => GridBookTile(item: section.books[i], sequenceBadge: _sequenceFor(section.books[i], section.label)?.replaceFirst('#', '')),

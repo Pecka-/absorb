@@ -627,8 +627,9 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
               builder: (context, _) => GridView.builder(
               controller: widget.scrollController,
               padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + MediaQuery.of(context).viewPadding.bottom),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.55,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: (MediaQuery.of(context).size.width / 130).floor().clamp(3, 10),
+                mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.55,
               ),
               itemCount: _books.length,
               itemBuilder: (context, index) => GridBookTile(item: _books[index], sequenceBadge: _getSequenceString(_books[index])),

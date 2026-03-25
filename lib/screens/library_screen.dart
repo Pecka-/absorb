@@ -15,6 +15,13 @@ import '../widgets/library_search_results.dart';
 import '../main.dart' show oledNotifier;
 import '../widgets/library_sort_filter_sheet.dart';
 
+/// Responsive grid column count based on available width.
+/// Returns 3 on phones, scales up on tablets/iPads.
+int responsiveGridCount(BuildContext context) {
+  final width = MediaQuery.of(context).size.width;
+  return (width / 130).floor().clamp(3, 10);
+}
+
 // ─── Sort modes ──────────────────────────────────────────────
 enum LibrarySort { recentlyAdded, alphabetical, authorName, publishedYear, duration, random, totalDuration }
 
@@ -1420,7 +1427,7 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
+          crossAxisCount: responsiveGridCount(context),
           childAspectRatio: _rectangleCovers ? 0.48 : 0.68,
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
@@ -1484,7 +1491,7 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
+          crossAxisCount: responsiveGridCount(context),
           childAspectRatio: _rectangleCovers ? 0.48 : 0.68,
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
@@ -1543,8 +1550,8 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
         controller: _authorsScrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: responsiveGridCount(context),
           childAspectRatio: 0.68,
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
