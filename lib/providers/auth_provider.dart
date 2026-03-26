@@ -139,6 +139,7 @@ class AuthProvider extends ChangeNotifier {
             }
             debugPrint('[Auth] /me done (${sw.elapsedMilliseconds}ms)');
           } catch (_) {}
+          _fetchServerVersion(activeServerUrl!);
         }
       }
     } catch (e) {
