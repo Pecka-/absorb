@@ -239,7 +239,7 @@ class PlayerSettings {
   static Future<void> setStreamingCacheSizeMb(int value) async {
     debugPrint('[Settings] Streaming cache set to: $value MB');
     await _set('streamingCacheSizeMb', value);
-    // Reconfigure the native cache immediately
+    // Reconfigure the cache immediately
     try {
       await AudioPlayer.configureStreamingCache(value);
       debugPrint('[Settings] Streaming cache configured on native side');

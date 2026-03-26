@@ -61,8 +61,9 @@ class LogService {
     _originalDebugPrint?.call(message, wrapWidth: wrapWidth);
     if (_logFile != null && message != null) {
       final ts = DateTime.now().toIso8601String();
+      final sanitized = _sanitize(message);
       _logFile!.writeAsStringSync(
-        '[$ts] $message\n',
+        '[$ts] $sanitized\n',
         mode: FileMode.append,
       );
       _maybeRotate();
@@ -73,8 +74,9 @@ class LogService {
   void log(String message) {
     if (_logFile != null) {
       final ts = DateTime.now().toIso8601String();
+      final sanitized = _sanitize(message);
       _logFile!.writeAsStringSync(
-        '[$ts] $message\n',
+        '[$ts] $sanitized\n',
         mode: FileMode.append,
       );
       _maybeRotate();
@@ -133,6 +135,25 @@ class LogService {
     return buf.toString();
   }
 
+  /// Params whose values should be masked in logged URLs.
+  static final _sensitiveParamPattern = RegExp(
+    r'token|code|secret|password|key|verifier|challenge|state|cookie|auth|bearer',
+    caseSensitive: false,
+  );
+
+  /// Sanitize a single log message: mask URLs, sensitive query params, and
+  /// bare key=value pairs that look like credentials.
+  static String _sanitize(String message) {
+    var result = _sanitizeUrls(message);
+    // Mask standalone sensitive key=value pairs not inside URLs
+    // (e.g. "token=abc123" in non-URL context)
+    result = result.replaceAllMapped(
+      RegExp(r'(token|secret|password|authorization|bearer|\w*key)\s*[=:]\s*(?!null\b|\*\*\*|true\b|false\b)\S+', caseSensitive: false),
+      (m) => '${m.group(1)}=***',
+    );
+    return result;
+  }
+
   /// Sanitize URLs in log content, replacing server hosts with a connection
   /// type label (e.g. [local-ip], [tailscale], [reverse-proxy]) while keeping
   /// API paths intact for debugging.
@@ -160,7 +181,8 @@ class LogService {
           label = '[remote-http]';
         }
         final path = uri.path.isNotEmpty ? uri.path : '';
-        return '$label$path';
+        final query = _maskQuery(uri);
+        return '$label$path$query';
       } catch (_) {
         return '[url-redacted]';
       }
@@ -173,6 +195,18 @@ class LogService {
       result = result.replaceAll(host, '[host-redacted]');
     }
     return result;
+  }
+
+  /// Keep query param names but mask values of sensitive ones.
+  static String _maskQuery(Uri uri) {
+    if (uri.queryParameters.isEmpty) return '';
+    final masked = uri.queryParameters.entries.map((e) {
+      if (_sensitiveParamPattern.hasMatch(e.key)) {
+        return '${e.key}=***';
+      }
+      return '${e.key}=${e.value}';
+    }).join('&');
+    return '?$masked';
   }
 
   static bool _isPrivateIp(String host) {

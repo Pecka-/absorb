@@ -164,6 +164,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
   }
 
   void _onLibraryChanged() {
+    if (!mounted) return;
     // Once absorbing list loads, derive cover scheme if we haven't yet
     if (coverSchemeNotifier.value == null) {
       _deriveCoverScheme();
@@ -172,6 +173,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
 
   /// Attempt to derive cover scheme. Returns true if successful.
   bool _deriveCoverScheme() {
+    if (!mounted) return false;
     // Use player's current item, or fall back to absorbing list's first item
     var itemId = _player.currentItemId;
     if (itemId == null) {

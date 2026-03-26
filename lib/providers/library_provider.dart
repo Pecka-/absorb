@@ -1063,6 +1063,7 @@ class LibraryProvider extends ChangeNotifier {
 
     try {
       _libraries = await _api!.getLibraries();
+      debugPrint('[Library] loadLibraries: got ${_libraries.length} libraries');
 
       if (_libraries.isNotEmpty) {
         // Prefer last user-selected library, then server default, then first book library
@@ -1399,13 +1400,13 @@ class LibraryProvider extends ChangeNotifier {
             debugPrint('[Progress] Keeping local finished (no server data): $key');
             return false;
           });
-          _localProgressOverrides.removeWhere((key, _) {
-            if (!_locallyFinishedItems.contains(key)) {
-              debugPrint('[Progress] Clearing override for $key');
-              return true;
-            }
-            return false;
-          });
+          final overridesBefore = _localProgressOverrides.length;
+          _localProgressOverrides.removeWhere((key, _) =>
+            !_locallyFinishedItems.contains(key));
+          final cleared = overridesBefore - _localProgressOverrides.length;
+          if (cleared > 0) {
+            debugPrint('[Progress] Cleared $cleared overrides');
+          }
         }
       }
     } catch (_) {}

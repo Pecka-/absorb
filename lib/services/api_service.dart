@@ -130,10 +130,14 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return (data['libraries'] as List?) ?? [];
+        final libs = (data['libraries'] as List?) ?? [];
+        debugPrint('[API] getLibraries: ${libs.length} libraries');
+        return libs;
+      } else {
+        debugPrint('[API] getLibraries failed: ${response.statusCode}');
       }
     } catch (e) {
-      // ignore
+      debugPrint('[API] getLibraries error: $e');
     }
     return [];
   }
@@ -228,7 +232,10 @@ class ApiService {
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
-    } catch (_) {}
+      debugPrint('[API] getMe failed: ${response.statusCode}');
+    } catch (e) {
+      debugPrint('[API] getMe error: $e');
+    }
     return null;
   }
 

@@ -134,6 +134,8 @@ class AuthProvider extends ChangeNotifier {
             if (me != null) {
               _userJson = me;
               _userId = me['id'] as String?;
+            } else {
+              debugPrint('[Auth] /me returned null (token may be invalid)');
             }
             debugPrint('[Auth] /me done (${sw.elapsedMilliseconds}ms)');
           } catch (_) {}

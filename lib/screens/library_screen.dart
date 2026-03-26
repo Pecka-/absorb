@@ -316,6 +316,7 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
   }
 
   void _onLibraryChanged() {
+    if (!mounted) return;
     final lib = context.read<LibraryProvider>();
     if (lib.selectedLibraryId != null && _items.isEmpty && !_isLoadingPage) {
       lib.removeListener(_onLibraryChanged);

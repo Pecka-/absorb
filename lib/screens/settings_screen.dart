@@ -1577,7 +1577,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               icon: const Icon(Icons.delete_sweep_outlined, size: 18),
                               label: const Text('Clear cache'),
                               onPressed: () async {
-                                await AudioPlayer.clearStreamingCache();
+                                try {
+                                  await AudioPlayer.clearStreamingCache();
+                                } catch (_) {}
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(content: Text('Streaming cache cleared')));
