@@ -49,7 +49,19 @@ A modern audiobookshelf client with a card-based player experience.
 [![Get it on GitHub](https://img.shields.io/badge/Get_it_on-GitHub-blue?style=for-the-badge&logo=github)](../../releases)
 [![Get it on Obtainium](https://img.shields.io/badge/Get_it_on-Obtainium-teal?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJMMiAyMmgyMEwxMiAyeiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=)](https://apps.obtainium.imranr.dev/redirect.html?r=obtainium://add/https://github.com/pounat/absorb)
 
-Absorb is also in **closed testing on Google Play**. If you'd like access, reach out or request an invite.
+### Release Tracks
+
+**GitHub Pre-Releases (Alpha)** - Frequent updates with new features and bug fixes. In Obtainium you can toggle pre-releases on or off.
+
+**GitHub Full Releases (Beta/Stable)** - Once a pre-release is solid, it gets promoted to a full release. These match what's pushed to Google Play and TestFlight.
+
+### Google Play
+
+Internal testing matches GitHub pre-releases. Open testing and production releases match GitHub full releases. Once open testing is approved, more users will be accepted into the internal testing group for alpha builds. Join the [Discord](https://discord.gg/dW4Y4zCxRp) to request access.
+
+### iOS TestFlight
+
+Public TestFlight matches GitHub full releases. [Join the TestFlight](https://testflight.apple.com/join/GgUbDbve). Core functionality works, but some features are still Android-only or in progress.
 
 ## Android Auto
 
@@ -62,9 +74,7 @@ Absorb supports Android Auto for browsing and listening from your car. To use it
 >
 > This is required because Absorb is not distributed through Google Play's production track.
 
-## iOS TestFlight
-
-Absorb is now available on iOS via TestFlight, still closed for now as I get it more ready for iOS users. Core functionality works, but some features are still Android-only or in progress.
+## iOS
 
 ### Working
 If any of these aren't working as expected, please [open an issue](../../issues).
