@@ -25,6 +25,8 @@ import '../screens/bookmarks_screen.dart';
 import '../main.dart' show applyThemeMode, applyTrustAllCerts, oledNotifier, snappyTransitionsNotifier;
 import '../widgets/absorb_page_header.dart';
 import '../widgets/absorb_slider.dart';
+import '../widgets/collapsible_section.dart';
+import '../widgets/tips_sheet.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -306,171 +308,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await s.save();
   }
 
-  void _showTips(BuildContext context, ColorScheme cs, TextTheme tt) {
-    showModalBottomSheet(
-      context: context, isScrollControlled: true, useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false, initialChildSize: 0.75, minChildSize: 0.05, maxChildSize: 0.95,
-        builder: (_, sc) => Container(
-          decoration: BoxDecoration(
-            color: cs.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: ListView(
-            controller: sc,
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-            children: [
-              Center(child: Container(
-                width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(color: cs.onSurfaceVariant.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2)),
-              )),
-              Row(children: [
-                Icon(Icons.auto_awesome_rounded, color: cs.primary, size: 24),
-                const SizedBox(width: 10),
-                Text('Tips & Hidden Features', style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
-              ]),
-              const SizedBox(height: 20),
-              // ── Hidden gestures (most non-obvious first) ──
-              _tipCard(cs, tt,
-                icon: Icons.bookmark_added_rounded,
-                title: 'Quick Bookmarks',
-                desc: 'Long-press the bookmark button on any card to instantly drop a bookmark at your current position without opening the bookmark sheet.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.touch_app_rounded,
-                title: 'Cover Play/Pause',
-                desc: 'Tap the cover art on any card to play or pause. Toggle this in Settings under Absorbing Cards. A faint pause icon shows when playing so you know it\'s tappable.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.swipe_up_rounded,
-                title: 'Full Screen Player',
-                desc: 'Swipe up on any absorbing card to open the full screen player. Swipe down to dismiss it.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.swipe_right_rounded,
-                title: 'Quick Add to Absorbing',
-                desc: 'Swipe right on any book in a list sheet (series, author, search results) to instantly add it to your absorbing queue.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.edit_note_rounded,
-                title: 'Edit Bookmarks',
-                desc: 'Long-press any bookmark in the bookmark sheet to edit its title and add notes.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.vibration_rounded,
-                title: 'Shake to Extend Sleep',
-                desc: 'If you have a sleep timer running and shake your phone, it\'ll add extra minutes. Configure the amount in Settings under Sleep Timer.',
-              ),
-              // ── Semi-hidden features ──
-              _tipCard(cs, tt,
-                icon: Icons.auto_stories_rounded,
-                title: 'Series Navigation',
-                desc: 'Tap the series name in any book\'s detail popup to see all books in the series, sorted in reading order with sequence badges on each cover.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.swipe_rounded,
-                title: 'Swipe Between Books',
-                desc: 'On the Absorbing screen, swipe left and right to switch between your in-progress books. The dots at the top show which book you\'re viewing.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.touch_app_rounded,
-                title: 'Tap to Seek',
-                desc: 'Tap anywhere on the chapter or book progress bar to jump directly to that position. You can also drag the bars for fine-grained control.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.speed_rounded,
-                title: 'Speed-Adjusted Time',
-                desc: 'Time remaining and chapter times automatically adjust based on your playback speed. Listening at 1.5x? The time shown reflects how long it\'ll actually take you.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.history_rounded,
-                title: 'Playback History',
-                desc: 'Tap the History button on any card to see a timeline of every play, pause, seek, and speed change. Tap any event to jump back to that position.',
-              ),
-              // ── Settings-based & obvious features ──
-              _tipCard(cs, tt,
-                icon: Icons.replay_rounded,
-                title: 'Auto-Rewind',
-                desc: 'When you resume after a pause, Absorb automatically rewinds a few seconds so you don\'t lose your place. The rewind amount scales with how long you were away. Configure it in Settings.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.skip_next_rounded,
-                title: 'Queue Mode',
-                desc: 'When you finish a book that\'s part of a series, Absorb can automatically queue up the next book. Enable this in Settings under Absorbing Cards.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.airplanemode_active_rounded,
-                title: 'Offline Mode',
-                desc: 'Tap the airplane button on the Absorbing screen to enter offline mode. This stops syncing, saves data, and only shows your downloaded books. Great for flights or low signal areas.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.stop_rounded,
-                title: 'Stop Playback',
-                desc: 'The Stop button in the Absorbing header ends your listening session and saves your progress. Your progress syncs automatically in the background.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.download_rounded,
-                title: 'Download for Offline',
-                desc: 'Tap the download button in any book\'s detail popup to save it for offline listening. Downloaded books are available in offline mode without any internet connection.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.dashboard_customize_rounded,
-                title: 'Customize Home',
-                desc: 'Tap the edit button in the top right of the Home screen to rearrange, hide, or show sections. Drag sections into your preferred order.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.playlist_play_rounded,
-                title: 'Playlists',
-                desc: 'Create and manage playlists on your Audiobookshelf server and they\'ll appear as sections on your Home screen. Add books to playlists from any book\'s detail popup.',
-              ),
-              _tipCard(cs, tt,
-                icon: Icons.collections_bookmark_rounded,
-                title: 'Collections',
-                desc: 'Collections group related books together and show up as Home sections. Root admins can add books and edit collections from the detail popup.',
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _tipCard(ColorScheme cs, TextTheme tt, {required IconData icon, required String title, required String desc}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: cs.primaryContainer.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, size: 20, color: cs.primary),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Text(desc, style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.4)),
-              ],
-            )),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -510,7 +347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: GestureDetector(
-                    onTap: () => _showTips(context, cs, tt),
+                    onTap: () => showTipsSheet(context),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                       decoration: BoxDecoration(
@@ -613,7 +450,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 20),
 
                 // ── Appearance ──
-                _CollapsibleSection(
+                CollapsibleSection(
                   key: _keyFor('Appearance'),
                   icon: Icons.palette_outlined,
                   title: 'Appearance',
@@ -720,7 +557,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
 
                 // ── Absorbing Cards ──
-                _CollapsibleSection(
+                CollapsibleSection(
                   key: _keyFor('Absorbing Cards'),
                   icon: Icons.style_rounded,
                   title: 'Absorbing Cards',
@@ -948,7 +785,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
 
                 // ── Playback ──
-                _CollapsibleSection(
+                CollapsibleSection(
                   key: _keyFor('Playback'),
                   icon: Icons.play_circle_outline_rounded,
                   title: 'Playback',
@@ -1210,7 +1047,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
 
                 // ── Sleep Timer ──
-                _CollapsibleSection(
+                CollapsibleSection(
                   key: _keyFor('Sleep Timer'),
                   icon: Icons.bedtime_outlined,
                   title: 'Sleep Timer',
@@ -1406,7 +1243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
 
                 // ── Downloads & Storage ──
-                _CollapsibleSection(
+                CollapsibleSection(
                   key: _keyFor('Downloads & Storage'),
                   icon: Icons.download_outlined,
                   title: 'Downloads & Storage',
@@ -1614,7 +1451,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
 
                 // ── Library ──
-                _CollapsibleSection(
+                CollapsibleSection(
                   key: _keyFor('Library'),
                   icon: Icons.auto_stories_outlined,
                   title: 'Library',
@@ -1686,7 +1523,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
 
                 // ── Permissions ──
-                _CollapsibleSection(
+                CollapsibleSection(
                   key: _keyFor('Permissions'),
                   icon: Icons.shield_outlined,
                   title: 'Permissions',
@@ -1748,7 +1585,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
 
                 // ── Issues & Support ──
-                _CollapsibleSection(
+                CollapsibleSection(
                   key: _keyFor('Issues & Support'),
                   icon: Icons.support_agent_rounded,
                   title: 'Issues & Support',
@@ -1857,7 +1694,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
 
                 // ── Advanced ──
-                _CollapsibleSection(
+                CollapsibleSection(
                   key: _keyFor('Advanced'),
                   icon: Icons.tune_rounded,
                   title: 'Advanced',
@@ -2874,73 +2711,5 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Jump to the absorbing screen
       AppShell.goToAbsorbingGlobal();
     }
-  }
-}
-
-class _CollapsibleSection extends StatefulWidget {
-  final IconData icon;
-  final String title;
-  final ColorScheme cs;
-  final List<Widget> children;
-  final bool isExpanded;
-  final ValueChanged<bool>? onExpansionChanged;
-
-  const _CollapsibleSection({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.cs,
-    required this.children,
-    this.isExpanded = false,
-    this.onExpansionChanged,
-  });
-
-  @override
-  State<_CollapsibleSection> createState() => _CollapsibleSectionState();
-}
-
-class _CollapsibleSectionState extends State<_CollapsibleSection> {
-  final ExpansibleController _controller = ExpansibleController();
-  bool _isBuilt = false;
-
-  @override
-  void didUpdateWidget(covariant _CollapsibleSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (_isBuilt && widget.isExpanded != oldWidget.isExpanded) {
-      if (widget.isExpanded) {
-        _controller.expand();
-      } else {
-        _controller.collapse();
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    _isBuilt = true;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Card(
-      elevation: isDark ? 0 : 2,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      color: widget.cs.surfaceContainerHighest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: isDark ? BorderSide(color: widget.cs.outlineVariant.withValues(alpha: 0.3)) : BorderSide.none,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          controller: _controller,
-          initiallyExpanded: widget.isExpanded,
-          onExpansionChanged: widget.onExpansionChanged,
-          leading: Icon(widget.icon, color: widget.cs.primary, size: 22),
-          title: Text(widget.title, style: TextStyle(fontWeight: FontWeight.w600)),
-          childrenPadding: EdgeInsets.zero,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-          children: widget.children,
-        ),
-      ),
-    );
   }
 }
