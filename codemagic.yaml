@@ -11,6 +11,14 @@ workflows:
       flutter: stable
       java: 17
     scripts:
+      - name: Set up key.properties
+        script: |
+          cat >> $CM_BUILD_DIR/android/key.properties <<EOF
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyPassword=$CM_KEY_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          storeFile=$CM_KEYSTORE_PATH
+          EOF
       - name: Build GitHub APK
         script: flutter build apk --release --flavor github --dart-define=GITHUB_BUILD=true
       - name: Build Play Store AAB
