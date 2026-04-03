@@ -58,6 +58,19 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
   bool _gridView = false;
 
   @override
+  void initState() {
+    super.initState();
+    PlayerSettings.getSectionGridView().then((v) {
+      if (mounted && v != _gridView) setState(() => _gridView = v);
+    });
+  }
+
+  void _toggleGridView() {
+    setState(() => _gridView = !_gridView);
+    PlayerSettings.setSectionGridView(_gridView);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
@@ -79,7 +92,7 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
             style: tt.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
           const SizedBox(width: 12),
           GestureDetector(
-            onTap: () => setState(() => _gridView = !_gridView),
+            onTap: _toggleGridView,
             child: Icon(
               _gridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
               size: 20, color: cs.onSurfaceVariant,

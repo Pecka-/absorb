@@ -572,6 +572,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       titleTap = () => CollectionDetailSheet.show(
                           context, section['_collectionId'] as String);
                       sectionIcon = Icons.collections_bookmark_rounded;
+                    } else if (id.startsWith('genre:')) {
+                      sectionIcon = Icons.label_outline_rounded;
+                      final sectionLabel = label as String;
+                      titleTap = () => SectionDetailSheet.show(
+                        context,
+                        title: sectionLabel,
+                        icon: sectionIcon,
+                        entities: entities,
+                        coverAspectRatio: _rectangleCovers ? 2 / 3 : 1.0,
+                      );
                     } else {
                       sectionIcon = _sectionIcons[id] ?? Icons.album_outlined;
                       final sectionLabel = label as String;

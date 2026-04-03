@@ -45,6 +45,11 @@ mixin _StateMixin on ChangeNotifier {
   Set<String> _hiddenSectionIds = {};
   bool _applyDefaultPlaylistCollectionHiding = false;
 
+  /// Genre sections added by the user (genre name -> cached items).
+  Map<String, List<dynamic>> _genreSections = {};
+  /// Persisted set of genre names the user has added as home sections.
+  Set<String> _addedGenres = {};
+
   final Map<String, Map<String, dynamic>> _seriesBooksCache = {};
   final Map<String, Map<String, dynamic>> _seriesTabCache = {};
   final Map<String, Map<String, dynamic>> _subSeriesCache = {};

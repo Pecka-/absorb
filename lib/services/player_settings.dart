@@ -296,6 +296,9 @@ class PlayerSettings {
   static Future<bool> getRectangleCovers() => _get('rectangleCovers', false);
   static Future<void> setRectangleCovers(bool value) => _set('rectangleCovers', value, notify: true);
 
+  static Future<bool> getSectionGridView() => _get('sectionGridView', false);
+  static Future<void> setSectionGridView(bool value) => _set('sectionGridView', value);
+
   static Future<bool> getCoverPlayButton() => _get('coverPlayButton', false);
   static Future<void> setCoverPlayButton(bool value) => _set('coverPlayButton', value, notify: true);
 

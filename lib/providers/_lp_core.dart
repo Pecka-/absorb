@@ -1209,6 +1209,14 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
       _hiddenSectionIds = hiddenJson.toSet();
     }
     _applyDefaultPlaylistCollectionHiding = false;
+    // Load persisted genre sections
+    final genreJson = await ScopedPrefs.getStringList('home_genre_sections_$libId');
+    _addedGenres = genreJson.toSet();
+    _genreSections = {};
+    // Fetch items for each added genre in background
+    for (final genre in _addedGenres) {
+      _fetchGenreSectionItems(genre);
+    }
   }
 
   Future<void> _saveSectionPrefs() async {
@@ -1237,6 +1245,47 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   static const _defaultHiddenSections = {'newest-authors', 'recent-series'};
+
+  // ── Genre home sections ──
+
+  Set<String> get addedGenres => _addedGenres;
+
+  Future<void> _fetchGenreSectionItems(String genre) async {
+    if (_api == null || _selectedLibraryId == null) return;
+    final filterValue = base64Encode(utf8.encode(genre));
+    final data = await _api!.getLibraryItems(
+      _selectedLibraryId!,
+      filter: 'genres.$filterValue',
+      limit: 20,
+      sort: 'addedAt',
+      desc: 1,
+    );
+    if (data == null) return;
+    final results = data['results'] as List<dynamic>? ?? [];
+    _genreSections[genre] = results;
+    notifyListeners();
+  }
+
+  Future<void> addGenreSection(String genre) async {
+    if (_addedGenres.contains(genre)) return;
+    _addedGenres.add(genre);
+    final libId = _selectedLibraryId ?? '';
+    await ScopedPrefs.setStringList('home_genre_sections_$libId', _addedGenres.toList());
+    await _fetchGenreSectionItems(genre);
+    notifyListeners();
+  }
+
+  Future<void> removeGenreSection(String genre) async {
+    _addedGenres.remove(genre);
+    _genreSections.remove(genre);
+    final sectionId = 'genre:$genre';
+    _sectionOrder.remove(sectionId);
+    _hiddenSectionIds.remove(sectionId);
+    final libId = _selectedLibraryId ?? '';
+    await ScopedPrefs.setStringList('home_genre_sections_$libId', _addedGenres.toList());
+    await _saveSectionPrefs();
+    notifyListeners();
+  }
 
   List<Map<String, dynamic>> getOrderedHomeSections() {
     final allSections = <String, Map<String, dynamic>>{};
@@ -1271,6 +1320,17 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
       };
     }
 
+    for (final genre in _addedGenres) {
+      final id = 'genre:$genre';
+      final items = _genreSections[genre] ?? [];
+      allSections[id] = {
+        'id': id,
+        'label': genre,
+        'type': 'book',
+        'entities': items,
+      };
+    }
+
     allSections.removeWhere((id, _) => _hiddenSectionIds.contains(id));
     if (_applyDefaultPlaylistCollectionHiding) {
       allSections.removeWhere((id, _) =>
@@ -1289,6 +1349,10 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
       }
       for (final c in _collections) {
         final id = 'collection:${(c as Map)['id']}';
+        if (allSections.containsKey(id)) result.add(allSections[id]!);
+      }
+      for (final genre in _addedGenres) {
+        final id = 'genre:$genre';
         if (allSections.containsKey(id)) result.add(allSections[id]!);
       }
       return result;
@@ -1323,6 +1387,12 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
       result.add({
         'id': 'collection:${cm['id']}',
         'label': 'Server Collection - ${cm['name'] as String? ?? 'Collection'}',
+      });
+    }
+    for (final genre in _addedGenres) {
+      result.add({
+        'id': 'genre:$genre',
+        'label': genre,
       });
     }
     return result;
