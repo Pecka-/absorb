@@ -22,6 +22,8 @@ class HomeWidgetService {
 
   Timer? _progressTimer;
   Timer? _pendingUpdate;
+  int _auditPlayerChangedCount = 0;
+  int _auditThrottledCount = 0;
   String? _lastCoverItemId;
   DateTime? _lastUpdate;
   bool _initialized = false;
@@ -158,11 +160,13 @@ class HomeWidgetService {
   }
 
   void _onPlayerChanged() {
+    _auditPlayerChangedCount++;
     // Throttle to max once per 2 seconds, but never drop an update —
     // schedule a deferred one so the final state always gets pushed.
     final now = DateTime.now();
     if (_lastUpdate != null &&
         now.difference(_lastUpdate!).inMilliseconds < 2000) {
+      _auditThrottledCount++;
       _pendingUpdate?.cancel();
       _pendingUpdate = Timer(const Duration(seconds: 2), _scheduleUpdate);
       return;
@@ -173,6 +177,7 @@ class HomeWidgetService {
   /// Schedule an update on the next microtask so we never do async work
   /// inside the synchronous ChangeNotifier callback.
   void _scheduleUpdate() {
+    debugPrint('[BG-AUDIT] HomeWidget._scheduleUpdate() updating=$_updating');
     if (_updating) return;
     _updating = true;
     Future.microtask(() async {
@@ -187,6 +192,9 @@ class HomeWidgetService {
   }
 
   Future<void> _updateWidgetData() async {
+    debugPrint('[BG-AUDIT] HomeWidget._updateWidgetData() playerChangedSinceLastUpdate=$_auditPlayerChangedCount throttled=$_auditThrottledCount');
+    _auditPlayerChangedCount = 0;
+    _auditThrottledCount = 0;
     _lastUpdate = DateTime.now();
     final player = AudioPlayerService();
     final hasBook = player.hasBook;
@@ -265,6 +273,7 @@ class HomeWidgetService {
       // If no local cover, download from server to a temp file.
       if (coverPath == null) {
         if (coverUrl != null && coverUrl.isNotEmpty) {
+          debugPrint('[BG-AUDIT] HomeWidget._updateCoverArt HTTP FETCH $coverUrl');
           final cacheDir = await getTemporaryDirectory();
           final widgetCoverDir = Directory('${cacheDir.path}/widget_covers');
           if (!widgetCoverDir.existsSync()) {
@@ -296,13 +305,29 @@ class HomeWidgetService {
 
   void _startProgressTimer() {
     if (_progressTimer?.isActive == true) return;
+    debugPrint('[BG-AUDIT] HomeWidget._startProgressTimer (120s)');
     _progressTimer = Timer.periodic(const Duration(seconds: 120), (_) {
+      debugPrint('[BG-AUDIT] HomeWidget progressTimer FIRED');
       _scheduleUpdate();
     });
   }
 
   void _stopProgressTimer() {
+    debugPrint('[BG-AUDIT] HomeWidget._stopProgressTimer');
     _progressTimer?.cancel();
     _progressTimer = null;
+  }
+
+  void onAppBackgrounded() {
+    debugPrint('[BG-AUDIT] HomeWidget.onAppBackgrounded()');
+    _stopProgressTimer();
+  }
+
+  void onAppForegrounded() {
+    debugPrint('[BG-AUDIT] HomeWidget.onAppForegrounded() playing=${AudioPlayerService().isPlaying}');
+    if (AudioPlayerService().isPlaying) {
+      _startProgressTimer();
+      _scheduleUpdate();
+    }
   }
 }

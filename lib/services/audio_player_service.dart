@@ -23,6 +23,11 @@ export 'player_settings.dart';
 class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player = AudioPlayer(
     handleInterruptions: false,
+    // Android: bypass the local HTTP proxy for auth headers — ExoPlayer
+    // supports headers natively via DefaultHttpDataSource, so the proxy
+    // just doubles the packet count for no benefit.
+    // iOS: keep the proxy — AVPlayer can't set custom headers natively.
+    useProxyForRequestHeaders: !Platform.isAndroid,
     audioLoadConfiguration: const AudioLoadConfiguration(
       androidLoadControl: AndroidLoadControl(
         bufferForPlaybackDuration: Duration(milliseconds: 500),
@@ -306,7 +311,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   Timer? _clickTimer;
   int _clickCount = 0;
   DateTime? _hardwareButtonTime; // cooldown after hardware next/prev
-  bool _noisyPauseFlag = false; // suppress click resolution after BT disconnect
+  DateTime? _noisyPauseAt; // suppress clicks for a window after BT disconnect
 
   @override
   Future<void> click([MediaButton button = MediaButton.media]) async {
@@ -336,17 +341,21 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       _hardwareButtonTime = null;
     }
 
+    // Suppress phantom play commands within 5s of a BT/auto disconnect
+    if (_noisyPauseAt != null) {
+      final elapsed = DateTime.now().difference(_noisyPauseAt!).inMilliseconds;
+      if (elapsed < 5000) {
+        debugPrint('[Handler] Ignoring phantom click (${elapsed}ms after noisy pause)');
+        return;
+      }
+      _noisyPauseAt = null;
+    }
+
     _clickCount++;
     _clickTimer?.cancel();
-    _noisyPauseFlag = false;
     _clickTimer = Timer(const Duration(milliseconds: 400), () async {
       final count = _clickCount;
       _clickCount = 0;
-      if (_noisyPauseFlag) {
-        debugPrint('[Handler] click resolved: count=$count — suppressed (noisy pause)');
-        _noisyPauseFlag = false;
-        return;
-      }
       debugPrint('[Handler] click resolved: count=$count playing=${_player.playing}');
       switch (count) {
         case 1:
@@ -374,7 +383,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   /// Cancel any pending media-button click so a BT disconnect doesn't
   /// accidentally resume playback on the phone speaker.
   void cancelPendingClick() {
-    _noisyPauseFlag = true;
+    _noisyPauseAt = DateTime.now();
     if (_clickTimer?.isActive ?? false) {
       debugPrint('[Handler] Cancelling pending click (noisy pause)');
       _clickTimer!.cancel();
@@ -678,6 +687,9 @@ class AudioPlayerService extends ChangeNotifier {
   ApiService? get currentApi => _api;
   String? _playbackSessionId;
   bool _isOfflineMode = false;
+  bool _isBackgrounded = false;
+  bool get isBackgrounded => _isBackgrounded;
+  SharedPreferences? _prefs;
   StreamSubscription? _syncSub;
   StreamSubscription? _completionSub;
   Timer? _bgSaveTimer;
@@ -1108,10 +1120,29 @@ class AudioPlayerService extends ChangeNotifier {
   /// After a long background idle, Android can garbage-collect the stale
   /// MediaSession, leaving bluetooth / notification / widget controls dead.
   /// Re-activating the audio session and re-pushing handler state recovers it.
+  static void onAppBackgrounded() {
+    debugPrint('[BG-AUDIT] AudioPlayerService.onAppBackgrounded() playing=${_instance.isPlaying}');
+    _instance._isBackgrounded = true;
+  }
+
   static Future<void> onAppForegrounded() async {
     final service = _instance;
+    service._isBackgrounded = false;
     if (!service.hasBook) return;
+    debugPrint('[BG-AUDIT] AudioPlayerService.onAppForegrounded() playing=${service.isPlaying}');
     debugPrint('[MediaSession] Foregrounded - refreshing (playing=${service.isPlaying}, session=${service._playbackSessionId != null}, item=${service._currentItemId})');
+    // Flush missed UI updates from background
+    debugPrint('[BG-AUDIT] notifyListeners() flush on foreground');
+    service.notifyListeners();
+    // Flush overdue server sync
+    if (service.isPlaying && service._currentItemId != null) {
+      final sinceSync = DateTime.now().difference(service._lastServerSync).inSeconds;
+      debugPrint('[BG-AUDIT] foreground sync check: sinceLastSync=${sinceSync}s');
+      if (sinceSync > 60) {
+        debugPrint('[BG-AUDIT] foreground sync FLUSHING overdue sync');
+        service._syncToServer(service.position);
+      }
+    }
     // Re-activate audio session to get a fresh system token
     try { (await AudioSession.instance).setActive(true); } catch (_) {}
     // Re-push playback state so the system re-registers the MediaSession
@@ -1892,6 +1923,13 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   int _lastSyncSecond = -1;
+  int _lastBgProcessedSec = -1;
+  // BG-AUDIT counters - compile per-second summaries instead of per-tick logs
+  int _auditTickCount = 0;
+  int _auditSkippedTicks = 0;
+  int _auditLastReportSec = -1;
+  int _auditNotifyCount = 0;
+  int _auditNotifySkipped = 0;
 
   StreamSubscription? _eqSessionSub;
 
@@ -1934,23 +1972,27 @@ class AudioPlayerService extends ChangeNotifier {
     _completionSub?.cancel();
     _bgSaveTimer?.cancel();
     _lastSyncSecond = -1;
+    _lastBgProcessedSec = -1;
     _lastChapterCheckSec = -1;
     _lastKnownPositionSec = 0;
     _lastServerSync = DateTime.now();
+    // Cache prefs in background - not needed synchronously here
+    if (_prefs == null) {
+      SharedPreferences.getInstance().then((p) => _prefs = p);
+    }
 
     // Safety-net timer for position persistence when Android throttles the
     // Dart position stream in the background. The primary positionStream
     // listener saves every 5s; this only matters when that stream goes silent.
 
-    _bgSaveTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
+    _bgSaveTimer = Timer.periodic(const Duration(seconds: 300), (_) async {
+      debugPrint('[BG-AUDIT] bgSaveTimer FIRED bg=$_isBackgrounded');
       if (_currentItemId == null || _player == null || !_player!.playing) return;
       final pos = position;
       final posSec = pos.inMilliseconds / 1000.0;
       if (posSec <= 0) return;
+      debugPrint('[BG-AUDIT] bgSaveTimer saving pos=${posSec.toStringAsFixed(1)}s');
       await _saveProgressLocal(pos);
-      // Server sync is handled by the positionStream listener every 60s.
-      // This timer only does local saves as a safety net for when Android
-      // throttles the position stream in the background.
     });
 
     // Attach equalizer to current audio session
@@ -1961,12 +2003,17 @@ class AudioPlayerService extends ChangeNotifier {
     // position-reset can confuse the position-based detection.
     _completionSub = _player?.processingStateStream.listen((state) {
       if (state == ProcessingState.completed && _currentItemId != null) {
-        debugPrint('[Player] processingState → completed');
+        debugPrint('[BG-AUDIT] processingState=completed');
         _onPlaybackComplete();
       }
-      // Notify UI when buffering/loading state changes so spinners update
-      if (state == ProcessingState.ready || state == ProcessingState.loading || state == ProcessingState.buffering) {
+      // Notify UI when buffering/loading state changes so spinners update.
+      // Skip when backgrounded - no visible UI to rebuild; flushed on foreground.
+      if (!_isBackgrounded &&
+          (state == ProcessingState.ready || state == ProcessingState.loading || state == ProcessingState.buffering)) {
+        _auditNotifyCount++;
         notifyListeners();
+      } else if (_isBackgrounded) {
+        _auditNotifySkipped++;
       }
     }, onError: (Object e, StackTrace st) {
       debugPrint('[Player] processingState stream error: $e');
@@ -1996,6 +2043,25 @@ class AudioPlayerService extends ChangeNotifier {
       if (posSec > 0) _lastKnownPositionSec = posSec;
 
       if (sec <= 0) return;
+
+      _auditTickCount++;
+      // In background, only process once per second to save CPU.
+      if (_isBackgrounded) {
+        if (sec == _lastBgProcessedSec) {
+          _auditSkippedTicks++;
+          return;
+        }
+        _lastBgProcessedSec = sec;
+      }
+      // Log a compiled summary every 5 seconds
+      if (sec % 5 == 0 && sec != _auditLastReportSec) {
+        _auditLastReportSec = sec;
+        debugPrint('[BG-AUDIT] positionStream 5s summary: ticks=$_auditTickCount skipped=$_auditSkippedTicks processed=${_auditTickCount - _auditSkippedTicks} notifyListeners=$_auditNotifyCount notifySkipped=$_auditNotifySkipped bg=$_isBackgrounded pos=${posSec.toStringAsFixed(1)}s');
+        _auditTickCount = 0;
+        _auditSkippedTicks = 0;
+        _auditNotifyCount = 0;
+        _auditNotifySkipped = 0;
+      }
 
       // ─── Chapter change detection ──────────────────────────
       // Update notification subtitle when the chapter changes.
@@ -2062,29 +2128,36 @@ class AudioPlayerService extends ChangeNotifier {
       // Save locally every 5 seconds (always works, even offline)
       if (sec % 5 == 0 && sec != _lastSyncSecond && _currentItemId != null) {
         _lastSyncSecond = sec;
+        debugPrint('[BG-AUDIT] localSave pos=${posSec.toStringAsFixed(1)}s bg=$_isBackgrounded');
         _saveProgressLocal(absolutePos);
 
-        // Also sync to server every 60 seconds (unless manual offline)
-        if (sec % 60 == 0) {
-          final prefs = await SharedPreferences.getInstance();
-          final manualOffline = prefs.getBool('manual_offline_mode') ?? false;
+        // Sync to server: 60s foreground, 300s background
+        final syncInterval = _isBackgrounded ? 300 : 60;
+        final sinceLastSync = DateTime.now().difference(_lastServerSync).inSeconds;
+        if (sinceLastSync >= syncInterval) {
+          debugPrint('[BG-AUDIT] serverSync FIRING interval=${syncInterval}s sinceLastSync=${sinceLastSync}s bg=$_isBackgrounded');
+          final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
+              .getBool('manual_offline_mode') ?? false;
 
           if (manualOffline || _isOfflineMode || _playbackSessionId == null) {
             // Offline or no session - accumulate listening time locally
             final progressKey = _currentEpisodeId != null
                 ? '$_currentItemId-$_currentEpisodeId'
                 : _currentItemId!;
-            _progressSync.addOfflineListeningTime(progressKey, 60);
+            debugPrint('[BG-AUDIT] offlineAccumulate key=$progressKey secs=${sinceLastSync.clamp(0, 300)}');
+            _progressSync.addOfflineListeningTime(progressKey, sinceLastSync.clamp(0, 300));
           }
 
           if (manualOffline) {
+            debugPrint('[BG-AUDIT] serverSync SKIPPED (manualOffline)');
             // Manual offline — local save only, no server sync
           } else if (!_isOfflineMode && _playbackSessionId != null) {
             // Streaming/local with session: sync via session
+            debugPrint('[BG-AUDIT] serverSync SESSION pos=${absolutePos.inSeconds}s');
             _syncToServer(absolutePos);
           } else if (!_isOfflineMode && _api != null && _currentItemId != null) {
             // No session but online — sync via progress update endpoint
-            debugPrint('[Player] No-session sync — sending to server at ${absolutePos.inSeconds}s');
+            debugPrint('[BG-AUDIT] serverSync NO-SESSION pos=${absolutePos.inSeconds}s');
             try {
               final syncKey = _currentEpisodeId != null
                   ? '$_currentItemId-$_currentEpisodeId'
@@ -2406,6 +2479,7 @@ class AudioPlayerService extends ChangeNotifier {
     _pauseStopTimer?.cancel();
     _pauseStopTimer = null;
     _noisyPause = false; // User explicitly resumed — allow interrupt-resume again
+    _handler?._noisyPauseAt = null; // Clear noisy suppression window
     // Auto-rewind on resume if enabled
     if (_lastPauseTime != null && _player != null) {
       final settings = await AutoRewindSettings.load();
@@ -2445,8 +2519,8 @@ class AudioPlayerService extends ChangeNotifier {
     // Re-create server session if it was closed (e.g. pause timeout)
     // and check if server progress is ahead (e.g. user listened on another client)
     if (_api != null && _currentItemId != null) {
-      final prefs = await SharedPreferences.getInstance();
-      final manualOffline = prefs.getBool('manual_offline_mode') ?? false;
+      final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
+          .getBool('manual_offline_mode') ?? false;
       if (manualOffline || _isOfflineMode) {
         debugPrint('[Player] Skipping session re-create on resume (manualOffline=$manualOffline, isOffline=$_isOfflineMode)');
       } else {
@@ -2506,17 +2580,21 @@ class AudioPlayerService extends ChangeNotifier {
       return;
     }
     _player?.play();
+    debugPrint('[BG-AUDIT] play() bg=$_isBackgrounded');
     _logEvent(PlaybackEventType.play);
     _onPlaybackStateChangedCallback?.call(true);
 
     // Restart safety-net save timer (stopped on pause to avoid background wakes)
     if (_bgSaveTimer == null || !_bgSaveTimer!.isActive) {
+      debugPrint('[BG-AUDIT] bgSaveTimer RESTARTED (300s)');
       _bgSaveTimer?.cancel();
-      _bgSaveTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
+      _bgSaveTimer = Timer.periodic(const Duration(seconds: 300), (_) async {
+        debugPrint('[BG-AUDIT] bgSaveTimer FIRED (play-restart) bg=$_isBackgrounded');
         if (_currentItemId == null || _player == null || !_player!.playing) return;
         final pos = position;
         final posSec = pos.inMilliseconds / 1000.0;
         if (posSec <= 0) return;
+        debugPrint('[BG-AUDIT] bgSaveTimer saving pos=${posSec.toStringAsFixed(1)}s');
         await _saveProgressLocal(pos);
       });
     }
@@ -2533,6 +2611,7 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   Future<void> pause() async {
+    debugPrint('[BG-AUDIT] pause() bg=$_isBackgrounded');
     debugPrint('[Service] pause() called');
     _playVerifyTimer?.cancel();
     _wasPlayingBeforeInterrupt = false;
@@ -2556,8 +2635,8 @@ class AudioPlayerService extends ChangeNotifier {
     await _saveProgressLocal(pos);
 
     // Check manual offline before syncing
-    final prefs = await SharedPreferences.getInstance();
-    final manualOffline = prefs.getBool('manual_offline_mode') ?? false;
+    final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
+        .getBool('manual_offline_mode') ?? false;
     if (manualOffline) return;
 
     if (!_isOfflineMode && _playbackSessionId != null) {
@@ -2745,8 +2824,8 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     // Check manual offline before syncing
-    final prefs = await SharedPreferences.getInstance();
-    final manualOffline = prefs.getBool('manual_offline_mode') ?? false;
+    final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
+        .getBool('manual_offline_mode') ?? false;
 
     if (!manualOffline) {
       // Try server sync

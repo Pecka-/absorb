@@ -618,14 +618,16 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   // ── Battery-saving lifecycle ──
 
   void onAppBackgrounded() {
+    debugPrint('[BG-AUDIT] LibraryProvider.onAppBackgrounded() playing=${AudioPlayerService().isPlaying}');
     _isBackgrounded = true;
     _stopServerPingTimer();
-    if (!AudioPlayerService().isPlaying && !ChromecastService().isPlaying) {
-      _softDisconnectSocket();
-    }
+    _idleDisconnectTimer?.cancel(); // No timers in background
+    _idleDisconnectTimer = null;
+    _softDisconnectSocket(); // Always disconnect, even during playback
   }
 
   void onAppForegrounded() {
+    debugPrint('[BG-AUDIT] LibraryProvider.onAppForegrounded()');
     _isBackgrounded = false;
     _softReconnectSocket();
     if (_networkOffline && _deviceHasConnectivity && !_manualOffline) {
@@ -638,25 +640,34 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
     _idleDisconnectTimer?.cancel();
     _idleDisconnectTimer = Timer(_StateMixin._idleTimeout, () {
       if (!AudioPlayerService().isPlaying && !ChromecastService().isPlaying) {
-        debugPrint('[Library] Idle timeout - soft disconnecting socket');
+        debugPrint('[BG-AUDIT] idleTimer disconnecting socket');
         _softDisconnectSocket();
       }
     });
   }
 
   void onPlaybackStarted() {
-    _softReconnectSocket();
+    debugPrint('[BG-AUDIT] LibraryProvider.onPlaybackStarted() bg=$_isBackgrounded');
+    if (!_isBackgrounded) {
+      debugPrint('[BG-AUDIT] socket reconnect (foreground playback start)');
+      _softReconnectSocket();
+    } else {
+      debugPrint('[BG-AUDIT] socket reconnect SKIPPED (backgrounded)');
+    }
     _idleDisconnectTimer?.cancel();
   }
 
   void onPlaybackStopped() {
-    _restartIdleTimer();
+    debugPrint('[BG-AUDIT] LibraryProvider.onPlaybackStopped() bg=$_isBackgrounded');
     if (_isBackgrounded) {
       _softDisconnectSocket();
+    } else {
+      _restartIdleTimer();
     }
   }
 
   void _softDisconnectSocket() {
+    debugPrint('[BG-AUDIT] _softDisconnectSocket() alreadyDisconnected=$_socketSoftDisconnected manualOffline=$_manualOffline');
     if (_socketSoftDisconnected || _manualOffline) return;
     _socketSoftDisconnected = true;
     SocketService().softDisconnect();
@@ -1613,7 +1624,11 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   void _checkRollingDownloads(String playingKey) async {
-    if (_api == null || isOffline || _rollingDownloadSeries.isEmpty) return;
+    debugPrint('[BG-AUDIT] _checkRollingDownloads key=$playingKey api=${_api != null} offline=$isOffline series=${_rollingDownloadSeries.length}');
+    if (_api == null || isOffline || _rollingDownloadSeries.isEmpty) {
+      debugPrint('[BG-AUDIT] _checkRollingDownloads BAILED early');
+      return;
+    }
     final count = await PlayerSettings.getRollingDownloadCount();
 
     if (playingKey.length > 36) {
@@ -1637,12 +1652,19 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   void _checkQueueAutoDownloads(String playingKey) async {
-    if (_api == null || isOffline) return;
+    debugPrint('[BG-AUDIT] _checkQueueAutoDownloads key=$playingKey');
+    if (_api == null || isOffline) {
+      debugPrint('[BG-AUDIT] _checkQueueAutoDownloads BAILED (api/offline)');
+      return;
+    }
     final isPodcastKey = playingKey.length > 36;
     final queueMode = isPodcastKey
         ? await PlayerSettings.getPodcastQueueMode()
         : await PlayerSettings.getBookQueueMode();
-    if (queueMode != 'manual') return;
+    if (queueMode != 'manual') {
+      debugPrint('[BG-AUDIT] _checkQueueAutoDownloads BAILED (queueMode=$queueMode)');
+      return;
+    }
     final enabled = await PlayerSettings.getQueueAutoDownload();
     if (!enabled) return;
     final merged = await PlayerSettings.getMergeAbsorbingLibraries();
@@ -1728,9 +1750,16 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   void _checkAutoDownloadOnStream(String playingKey) async {
-    if (_api == null || isOffline) return;
+    debugPrint('[BG-AUDIT] _checkAutoDownloadOnStream key=$playingKey');
+    if (_api == null || isOffline) {
+      debugPrint('[BG-AUDIT] _checkAutoDownloadOnStream BAILED (api/offline)');
+      return;
+    }
     final enabled = await PlayerSettings.getAutoDownloadOnStream();
-    if (!enabled) return;
+    if (!enabled) {
+      debugPrint('[BG-AUDIT] _checkAutoDownloadOnStream BAILED (disabled)');
+      return;
+    }
 
     final connectivity = await Connectivity().checkConnectivity();
     if (!connectivity.contains(ConnectivityResult.wifi)) return;

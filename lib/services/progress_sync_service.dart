@@ -29,8 +29,9 @@ class ProgressSyncService {
     _connectivitySub = Connectivity().onConnectivityChanged.listen((result) {
       final wasOffline = !_isOnline;
       _isOnline = !result.contains(ConnectivityResult.none);
+      debugPrint('[BG-AUDIT] ProgressSync connectivity changed: online=$_isOnline wasOffline=$wasOffline');
       if (_isOnline && wasOffline) {
-        debugPrint('[Sync] Back online - flushing pending syncs');
+        debugPrint('[BG-AUDIT] ProgressSync back online - flushing pending syncs');
         _consecutiveFailures = 0; // reset backoff on connectivity change
         flushPendingSync();
       }
@@ -178,6 +179,7 @@ class ProgressSyncService {
   /// Flush all pending syncs (call when coming back online).
   /// Compares local vs server timestamps — last-write-wins.
   Future<void> flushPendingSync({ApiService? api, int maxItems = 5}) async {
+    debugPrint('[BG-AUDIT] flushPendingSync online=$_isOnline api=${api != null}');
     if (!_isOnline || api == null) return;
 
     if (_isFlushing) {

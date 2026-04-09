@@ -55,7 +55,8 @@ class _WelcomeContent extends StatelessWidget {
           ),
           Flexible(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+              padding: EdgeInsets.fromLTRB(24, 20, 24,
+                  32 + MediaQuery.of(context).viewPadding.bottom),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -106,7 +107,7 @@ class _WelcomeContent extends StatelessWidget {
                     items: [
                       'Off - playback stops when a book finishes',
                       'Manual - auto-plays the next card in your queue',
-                      'Auto Absorb - automatically finds and plays the next book in a series',
+                      'Series - automatically finds and plays the next book in a series',
                     ],
                   ),
 

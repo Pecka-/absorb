@@ -710,9 +710,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     SizedBox(height: 4),
                                     Text('Your absorbing cards act as a playlist. When one finishes, the next non-finished card auto-plays. Add items with the "Add to Absorbing" button on a book or episode and reorder from the absorbing screen.'),
                                     SizedBox(height: 12),
-                                    Text('Auto Absorb', style: TextStyle(fontWeight: FontWeight.w600)),
+                                    Text('Series', style: TextStyle(fontWeight: FontWeight.w600)),
                                     SizedBox(height: 4),
-                                    Text('Automatically absorbs the next book in a series or the next episode in a podcast show.'),
+                                    Text('Automatically plays the next book in a series or the next episode in a podcast show.'),
                                   ],
                                 ),
                                 actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Got it'))],
@@ -730,9 +730,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           SizedBox(width: double.infinity, child: SegmentedButton<String>(
                             showSelectedIcon: false,
                             segments: const [
-                              ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded), label: Text('Off')),
-                              ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded), label: Text('Manual')),
-                              ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded), label: Text('Auto')),
+                              ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded, size: 18), label: FittedBox(fit: BoxFit.scaleDown, child: Text('Off'))),
+                              ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded, size: 18), label: FittedBox(fit: BoxFit.scaleDown, child: Text('Manual'))),
+                              ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded, size: 18), label: FittedBox(fit: BoxFit.scaleDown, child: Text('Series'))),
                             ],
                             selected: {_mergedQueueMode},
                             onSelectionChanged: _loaded ? (s) {
@@ -753,9 +753,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           SizedBox(width: double.infinity, child: SegmentedButton<String>(
                             showSelectedIcon: false,
                             segments: const [
-                              ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded), label: Text('Off')),
-                              ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded), label: Text('Manual')),
-                              ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded), label: Text('Auto')),
+                              ButtonSegment(value: 'off', icon: Icon(Icons.stop_rounded, size: 18), label: FittedBox(fit: BoxFit.scaleDown, child: Text('Off'))),
+                              ButtonSegment(value: 'manual', icon: Icon(Icons.queue_music_rounded, size: 18), label: FittedBox(fit: BoxFit.scaleDown, child: Text('Manual'))),
+                              ButtonSegment(value: 'auto_next', icon: Icon(Icons.skip_next_rounded, size: 18), label: FittedBox(fit: BoxFit.scaleDown, child: Text('Series'))),
                             ],
                             selected: {_bookQueueMode},
                             onSelectionChanged: _loaded ? (s) {
@@ -1080,9 +1080,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: SegmentedButton<String>(
                           showSelectedIcon: false,
                           segments: const [
-                            ButtonSegment(value: 'off', label: Text('Off')),
-                            ButtonSegment(value: 'addTime', label: Text('Add Time')),
-                            ButtonSegment(value: 'resetTimer', label: Text('Reset')),
+                            ButtonSegment(value: 'off', label: FittedBox(fit: BoxFit.scaleDown, child: Text('Off'))),
+                            ButtonSegment(value: 'addTime', label: FittedBox(fit: BoxFit.scaleDown, child: Text('Add Time'))),
+                            ButtonSegment(value: 'resetTimer', label: FittedBox(fit: BoxFit.scaleDown, child: Text('Reset'))),
                           ],
                           selected: {_shakeMode},
                           onSelectionChanged: _loaded ? (v) {
@@ -1420,10 +1420,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           SizedBox(width: double.infinity, child: SegmentedButton<int>(
                             showSelectedIcon: false,
                             segments: const [
-                              ButtonSegment(value: 0, label: Text('Off')),
-                              ButtonSegment(value: 128, label: Text('128 MB')),
-                              ButtonSegment(value: 256, label: Text('256 MB')),
-                              ButtonSegment(value: 512, label: Text('512 MB')),
+                              ButtonSegment(value: 0, label: FittedBox(fit: BoxFit.scaleDown, child: Text('Off'))),
+                              ButtonSegment(value: 128, label: FittedBox(fit: BoxFit.scaleDown, child: Text('128 MB'))),
+                              ButtonSegment(value: 256, label: FittedBox(fit: BoxFit.scaleDown, child: Text('256 MB'))),
+                              ButtonSegment(value: 512, label: FittedBox(fit: BoxFit.scaleDown, child: Text('512 MB'))),
                             ],
                             selected: {_streamingCacheSizeMb},
                             onSelectionChanged: (v) {

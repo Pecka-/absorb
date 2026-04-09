@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/chromecast_service.dart';
+import '../services/home_widget_service.dart';
 import '../services/sleep_timer_service.dart';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -393,10 +394,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    debugPrint('[BG-AUDIT] AppShell lifecycle: $state');
     if (state == AppLifecycleState.resumed) {
       context.read<LibraryProvider>().onAppForegrounded();
       SleepTimerService().onAppForegrounded();
       AudioPlayerService.onAppForegrounded();
+      HomeWidgetService().onAppForegrounded();
       _refreshDataForTab(_currentIndex);
       // Check auto sleep in case we resumed into the window
       SleepTimerService().checkAutoSleep();
@@ -404,6 +407,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
     } else if (state == AppLifecycleState.paused) {
       context.read<LibraryProvider>().onAppBackgrounded();
       SleepTimerService().onAppBackgrounded();
+      AudioPlayerService.onAppBackgrounded();
+      HomeWidgetService().onAppBackgrounded();
     } else if (state == AppLifecycleState.detached) {
       final cast = ChromecastService();
       if (cast.isConnected) cast.disconnect();
