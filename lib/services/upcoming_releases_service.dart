@@ -148,6 +148,11 @@ class UpcomingReleasesService extends ChangeNotifier {
   }
 
   /// Start scanning all series in the library.
+  ///
+  /// Uses the lightweight filter-data endpoint to get series IDs/names
+  /// (avoids the heavy series endpoint that embeds all books per series,
+  /// which can OOM servers when a series has 1000+ books).
+  /// Then fetches a small number of books per series for ASIN resolution.
   Future<void> start({
     required ApiService api,
     required String libraryId,
@@ -171,10 +176,12 @@ class UpcomingReleasesService extends ChangeNotifier {
     await _showScanNotification('Starting scan...');
 
     try {
-      // First page to get total count
-      final firstPage = await api.getLibrarySeries(libraryId, page: 0, limit: 50);
+      // Use filter data to get series list - lightweight, no embedded books
+      debugPrint('[Upcoming] Fetching filter data for library $libraryId');
+      final filterData = await api.getLibraryFilterData(libraryId);
       if (_generation != gen) return;
-      if (firstPage == null) {
+      if (filterData == null) {
+        debugPrint('[Upcoming] filterData returned null');
         _error = 'Failed to load series';
         _isRunning = false;
         await _cancelScanNotification();
@@ -182,7 +189,10 @@ class UpcomingReleasesService extends ChangeNotifier {
         return;
       }
 
-      _totalSeries = (firstPage['total'] as int?) ?? 0;
+      debugPrint('[Upcoming] filterData keys: ${filterData.keys.toList()}');
+      final seriesList = filterData['series'] as List<dynamic>? ?? [];
+      _totalSeries = seriesList.length;
+      debugPrint('[Upcoming] Found $_totalSeries series via filter data');
       notifyListeners();
 
       if (_totalSeries == 0) {
@@ -193,34 +203,33 @@ class UpcomingReleasesService extends ChangeNotifier {
         return;
       }
 
-      // Process first page
-      final firstResults = (firstPage['results'] as List<dynamic>?) ?? [];
-      await _processBatch(api, firstResults, gen);
-      if (_generation != gen) return;
-
-      // Fetch remaining pages
-      final totalPages = (_totalSeries / 50).ceil();
-      for (var page = 1; page < totalPages; page++) {
+      // Process each series
+      for (final s in seriesList) {
         if (_generation != gen) return;
-        final pageData = await api.getLibrarySeries(libraryId, page: page, limit: 50);
-        if (_generation != gen) return;
-        if (pageData == null) continue;
-        final pageResults = (pageData['results'] as List<dynamic>?) ?? [];
-        await _processBatch(api, pageResults, gen);
+        if (s is! Map<String, dynamic>) {
+          debugPrint('[Upcoming] Skipping non-map series entry: ${s.runtimeType}');
+          _processedCount++;
+          notifyListeners();
+          continue;
+        }
+        await _processSeries(api, libraryId, s, gen);
       }
 
       if (_generation != gen) return;
       _isRunning = false;
       _isComplete = true;
       _currentSeriesName = null;
+      debugPrint('[Upcoming] Scan complete: ${_results.length} series with results, '
+          '${_results.fold<int>(0, (sum, r) => sum + r.upcomingBooks.length)} upcoming, '
+          '${_results.fold<int>(0, (sum, r) => sum + r.recentBooks.length)} recent');
       notifyListeners();
 
       await _saveCache();
       await _cancelScanNotification();
       await _showCompleteNotification();
-    } catch (e) {
+    } catch (e, st) {
       if (_generation != gen) return;
-      debugPrint('[Upcoming] scan error: $e');
+      debugPrint('[Upcoming] scan error: $e\n$st');
       _error = 'Scan failed: $e';
       _isRunning = false;
       await _cancelScanNotification();
@@ -228,108 +237,132 @@ class UpcomingReleasesService extends ChangeNotifier {
     }
   }
 
-  /// Process a batch of series from one API page.
-  Future<void> _processBatch(ApiService api, List<dynamic> seriesList, int gen) async {
-    for (final s in seriesList) {
-      if (_generation != gen) return;
-      if (s is! Map<String, dynamic>) {
+  /// Process a single series: resolve ASIN, discover Audible books, filter.
+  Future<void> _processSeries(ApiService api, String libraryId, Map<String, dynamic> s, int gen) async {
+    final seriesId = s['id'] as String? ?? '';
+    final seriesName = s['name'] as String? ?? 'Unknown Series';
+
+    _currentSeriesName = seriesName;
+    notifyListeners();
+
+    // Update scan notification periodically
+    if (_processedCount % 5 == 0) {
+      await _showScanNotification(
+        'Checking $seriesName... (${_processedCount + 1}/$_totalSeries)',
+      );
+    }
+
+    // Fetch a small number of books for this series (for ASIN resolution
+    // and ownership check) instead of relying on embedded books from the
+    // series endpoint, which can OOM the server for huge series.
+    List<dynamic> books;
+    if (_asinCache.containsKey(seriesId)) {
+      // If we already have the ASIN cached, we still need books for
+      // ownership check - but only if the ASIN resolved to something
+      final cached = _asinCache[seriesId]!;
+      if (cached.isEmpty) {
+        // No ASIN for this series, skip
+        debugPrint('[Upcoming] $seriesName: skipping (cached no ASIN)');
         _processedCount++;
         notifyListeners();
-        continue;
+        return;
       }
+      debugPrint('[Upcoming] $seriesName: fetching books for ownership check');
+      books = await api.getBooksBySeries(libraryId, seriesId, limit: 500);
+      debugPrint('[Upcoming] $seriesName: got ${books.length} books for ownership');
+    } else {
+      // Fetch a small batch for ASIN resolution first
+      debugPrint('[Upcoming] $seriesName: fetching up to 10 books for ASIN resolution');
+      books = await api.getBooksBySeries(libraryId, seriesId, limit: 10);
+      debugPrint('[Upcoming] $seriesName: got ${books.length} books');
+    }
+    if (_generation != gen) return;
 
-      final seriesId = s['id'] as String? ?? '';
-      final seriesName = s['name'] as String? ?? 'Unknown Series';
-      final books = s['books'] as List<dynamic>? ?? [];
+    // Try to resolve the Audible series ASIN
+    String? audibleAsin;
+    if (_asinCache.containsKey(seriesId)) {
+      final cached = _asinCache[seriesId]!;
+      audibleAsin = cached.isEmpty ? null : cached;
+      debugPrint('[Upcoming] $seriesName: ASIN cache ${cached.isEmpty ? "miss (no ASIN)" : cached}');
+    } else {
+      audibleAsin = await _resolveSeriesAsin(books, seriesName, gen);
+      if (_generation != gen) return;
+      _asinCache[seriesId] = audibleAsin ?? '';
+      debugPrint('[Upcoming] $seriesName: resolved ASIN=${audibleAsin ?? "NONE"} (${books.length} books checked)');
 
-      _currentSeriesName = seriesName;
-      notifyListeners();
-
-      // Update scan notification periodically
-      if (_processedCount % 5 == 0) {
-        await _showScanNotification(
-          'Checking $seriesName... (${_processedCount + 1}/$_totalSeries)',
-        );
-      }
-
-      // Try to resolve the Audible series ASIN
-      String? audibleAsin;
-      if (_asinCache.containsKey(seriesId)) {
-        final cached = _asinCache[seriesId]!;
-        audibleAsin = cached.isEmpty ? null : cached;
-        debugPrint('[Upcoming] $seriesName: ASIN cache ${cached.isEmpty ? "miss (no ASIN)" : cached}');
-      } else {
-        audibleAsin = await _resolveSeriesAsin(books, seriesName, gen);
+      // If we resolved an ASIN, fetch more books for ownership check
+      if (audibleAsin != null && books.length >= 10) {
+        debugPrint('[Upcoming] $seriesName: fetching full book list for ownership check');
+        books = await api.getBooksBySeries(libraryId, seriesId, limit: 500);
+        debugPrint('[Upcoming] $seriesName: got ${books.length} books for ownership');
         if (_generation != gen) return;
-        _asinCache[seriesId] = audibleAsin ?? '';
-        debugPrint('[Upcoming] $seriesName: resolved ASIN=${audibleAsin ?? "NONE"} (${books.length} books checked)');
+      }
+    }
+
+    if (audibleAsin != null) {
+      // Collect owned titles and ASINs from library books for ownership check
+      final ownedTitles = <String>{};
+      final ownedAsins = <String>{};
+      for (final b in books) {
+        if (b is! Map<String, dynamic>) continue;
+        final media = b['media'] as Map<String, dynamic>? ?? {};
+        final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+        final title = metadata['title'] as String? ?? '';
+        final asin = metadata['asin'] as String? ?? '';
+        if (title.isNotEmpty) ownedTitles.add(title);
+        if (asin.isNotEmpty) ownedAsins.add(asin);
       }
 
-      if (audibleAsin != null) {
-        // Collect owned titles and ASINs from library books for ownership check
-        final ownedTitles = <String>{};
-        final ownedAsins = <String>{};
-        for (final b in books) {
-          if (b is! Map<String, dynamic>) continue;
-          final media = b['media'] as Map<String, dynamic>? ?? {};
-          final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
-          final title = metadata['title'] as String? ?? '';
-          final asin = metadata['asin'] as String? ?? '';
-          if (title.isNotEmpty) ownedTitles.add(title);
-          if (asin.isNotEmpty) ownedAsins.add(asin);
-        }
-
-        // Get all books in the series from Audible
-        List<Map<String, dynamic>> allBooks;
-        if (_discoveryCache.containsKey(audibleAsin)) {
-          allBooks = _discoveryCache[audibleAsin]!;
-        } else {
-          allBooks = [];
-          for (var attempt = 0; attempt < 3; attempt++) {
+      // Get all books in the series from Audible
+      List<Map<String, dynamic>> allBooks;
+      if (_discoveryCache.containsKey(audibleAsin)) {
+        allBooks = _discoveryCache[audibleAsin]!;
+      } else {
+        allBooks = [];
+        for (var attempt = 0; attempt < 3; attempt++) {
+          if (_generation != gen) return;
+          try {
+            allBooks = await ApiService.discoverAudibleSeries(audibleAsin, region: _region, newestOnly: true);
             if (_generation != gen) return;
-            try {
-              allBooks = await ApiService.discoverAudibleSeries(audibleAsin, region: _region);
-              if (_generation != gen) return;
-              _discoveryCache[audibleAsin] = allBooks;
-              break;
-            } catch (e) {
-              debugPrint('[Upcoming] discover error for $seriesName (attempt ${attempt + 1}/3): $e');
-              if (attempt < 2) await Future.delayed(const Duration(seconds: 2));
-            }
+            _discoveryCache[audibleAsin] = allBooks;
+            break;
+          } catch (e) {
+            debugPrint('[Upcoming] discover error for $seriesName (attempt ${attempt + 1}/3): $e');
+            if (attempt < 2) await Future.delayed(const Duration(seconds: 2));
           }
-        }
-
-        debugPrint('[Upcoming] $seriesName: discovered ${allBooks.length} books on Audible');
-
-        // Filter to upcoming and recently released
-        final upcoming = allBooks.where(_isUpcoming).toList();
-        final recent = <Map<String, dynamic>>[];
-        for (final book in allBooks) {
-          if (_isRecentRelease(book)) {
-            final owned = _isOwnedBook(book, ownedTitles, ownedAsins);
-            recent.add({...book, '_owned': owned});
-          }
-        }
-
-        if (upcoming.isNotEmpty || recent.isNotEmpty) {
-          debugPrint('[Upcoming] $seriesName: ${upcoming.length} upcoming, ${recent.length} recent');
-          _results.add(UpcomingSeriesResult(
-            seriesId: seriesId,
-            seriesName: seriesName,
-            audibleAsin: audibleAsin,
-            upcomingBooks: upcoming,
-            recentBooks: recent,
-          ));
         }
       }
 
-      _processedCount++;
-      notifyListeners();
+      debugPrint('[Upcoming] $seriesName: discovered ${allBooks.length} books on Audible');
 
-      // Small delay between series to be nice to Audible API
-      if (_generation == gen) {
-        await Future.delayed(const Duration(milliseconds: 300));
+      // Filter to upcoming and recently released
+      final upcoming = allBooks.where(_isUpcoming).toList();
+      final recent = <Map<String, dynamic>>[];
+      for (final book in allBooks) {
+        if (_isRecentRelease(book)) {
+          final owned = _isOwnedBook(book, ownedTitles, ownedAsins);
+          recent.add({...book, '_owned': owned});
+        }
       }
+
+      if (upcoming.isNotEmpty || recent.isNotEmpty) {
+        debugPrint('[Upcoming] $seriesName: ${upcoming.length} upcoming, ${recent.length} recent');
+        _results.add(UpcomingSeriesResult(
+          seriesId: seriesId,
+          seriesName: seriesName,
+          audibleAsin: audibleAsin,
+          upcomingBooks: upcoming,
+          recentBooks: recent,
+        ));
+      }
+    }
+
+    _processedCount++;
+    notifyListeners();
+
+    // Small delay between series to be nice to Audible API
+    if (_generation == gen) {
+      await Future.delayed(const Duration(milliseconds: 300));
     }
   }
 
@@ -402,6 +435,9 @@ class UpcomingReleasesService extends ChangeNotifier {
   }
 
   /// Try to find the Audible series ASIN from the books' metadata ASINs via Audnexus.
+  /// Only checks up to [_maxAsinAttempts] books to avoid excessive API calls on huge series.
+  static const _maxAsinAttempts = 5;
+
   Future<String?> _resolveSeriesAsin(List<dynamic> books, String seriesName, int gen) async {
     int booksWithAsin = 0;
     int audnexusAttempts = 0;
@@ -414,6 +450,10 @@ class UpcomingReleasesService extends ChangeNotifier {
       final bookAsin = metadata['asin'] as String? ?? '';
       if (bookAsin.isEmpty) continue;
       booksWithAsin++;
+      if (audnexusAttempts >= _maxAsinAttempts) {
+        debugPrint('[Upcoming]   $seriesName: hit ASIN attempt cap ($_maxAsinAttempts), stopping');
+        break;
+      }
       audnexusAttempts++;
 
       for (var attempt = 0; attempt < 3; attempt++) {
@@ -512,13 +552,16 @@ class UpcomingReleasesService extends ChangeNotifier {
   /// Set region (for cache loading before scan).
   void setRegion(String region) => _region = region;
 
-  // ─── Notifications ───────────────────────────────────────────
+  // ─── Foreground Service / Notifications ──────────────────────
+
+  bool _foregroundActive = false;
 
   Future<void> _showScanNotification(String body) async {
     try {
       final plugin = FlutterLocalNotificationsPlugin();
       final androidPlugin = plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
+
       if (androidPlugin != null) {
         await androidPlugin.createNotificationChannel(
           const AndroidNotificationChannel(
@@ -533,6 +576,36 @@ class UpcomingReleasesService extends ChangeNotifier {
 
       final progress = _totalSeries > 0 ? _processedCount : 0;
       final max = _totalSeries > 0 ? _totalSeries : 0;
+
+      const androidDetails = AndroidNotificationDetails(
+        _notifChannelId,
+        _notifChannelName,
+        channelDescription: _notifChannelDesc,
+        importance: Importance.low,
+        priority: Priority.low,
+        ongoing: true,
+        autoCancel: false,
+        icon: 'drawable/ic_notification',
+      );
+
+      // Start as foreground service on first call so the scan survives
+      // the app being sent to the background.
+      if (!_foregroundActive && androidPlugin != null) {
+        try {
+          await androidPlugin.startForegroundService(
+            _scanNotifId,
+            'Scanning for upcoming releases',
+            body,
+            notificationDetails: androidDetails,
+            payload: 'upcoming_scan',
+          );
+          _foregroundActive = true;
+          debugPrint('[Upcoming] Foreground service started');
+          return;
+        } catch (e) {
+          debugPrint('[Upcoming] Foreground service failed, falling back: $e');
+        }
+      }
 
       await plugin.show(
         _scanNotifId,
@@ -561,6 +634,16 @@ class UpcomingReleasesService extends ChangeNotifier {
 
   Future<void> _cancelScanNotification() async {
     try {
+      if (_foregroundActive) {
+        final androidPlugin = FlutterLocalNotificationsPlugin()
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>();
+        if (androidPlugin != null) {
+          await androidPlugin.stopForegroundService();
+          debugPrint('[Upcoming] Foreground service stopped');
+        }
+        _foregroundActive = false;
+      }
       await FlutterLocalNotificationsPlugin().cancel(_scanNotifId);
     } catch (_) {}
   }

@@ -1336,7 +1336,14 @@ class ApiService {
   /// Returns a list of book maps with: asin, title, subtitle, authors, narrators,
   /// releaseDate, runtimeMinutes, rating, coverUrl, sequence.
   /// Books are deduplicated by sequence (prefers user's region) and sorted.
-  static Future<List<Map<String, dynamic>>> discoverAudibleSeries(String seriesAsin, {String? region}) async {
+  /// When [newestOnly] is true (default false), only fetches details for the
+  /// newest ~50 books by sequence - used by upcoming releases scan to avoid
+  /// hammering the Audible API for series with hundreds of entries.
+  static Future<List<Map<String, dynamic>>> discoverAudibleSeries(
+    String seriesAsin, {
+    String? region,
+    bool newestOnly = false,
+  }) async {
     final relationships = await getAudibleSeriesBooks(seriesAsin, region: region);
     if (relationships.isEmpty) return [];
 
@@ -1348,12 +1355,25 @@ class ApiService {
       bySequence.putIfAbsent(key, () => []).add(r);
     }
 
-    final uniqueBooks = <Map<String, dynamic>>[];
+    var uniqueBooks = <Map<String, dynamic>>[];
     for (final entry in bySequence.entries) {
       uniqueBooks.add({
         ...entry.value.first,
         '_allAsins': entry.value.map((e) => e['asin'] as String).toList(),
       });
+    }
+
+    // For upcoming releases scan, only fetch details for the newest books.
+    // Sort by sequence descending and take the tail - upcoming/recent releases
+    // will always be among the highest-numbered entries.
+    if (newestOnly && uniqueBooks.length > 50) {
+      uniqueBooks.sort((a, b) {
+        final seqA = double.tryParse(a['sequence']?.toString() ?? '') ?? 999999;
+        final seqB = double.tryParse(b['sequence']?.toString() ?? '') ?? 999999;
+        return seqB.compareTo(seqA); // descending
+      });
+      debugPrint('[API] discoverAudibleSeries: capping ${uniqueBooks.length} books to newest 50');
+      uniqueBooks = uniqueBooks.take(50).toList();
     }
 
     final results = <Map<String, dynamic>>[];
