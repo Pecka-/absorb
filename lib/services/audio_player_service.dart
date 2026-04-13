@@ -2688,7 +2688,8 @@ class AudioPlayerService extends ChangeNotifier {
             activationDelay: settings.activationDelay);
         if (rewindSeconds > 0.5) {
           final currentAbsolutePos = position.inMilliseconds / 1000.0;
-          var newPosSeconds = currentAbsolutePos - rewindSeconds;
+          final currentSpeed = _player!.speed;
+          var newPosSeconds = currentAbsolutePos - (rewindSeconds * currentSpeed);
           if (newPosSeconds < 0) newPosSeconds = 0;
           // Chapter barrier: don't rewind past the current chapter start
           if (settings.chapterBarrier && _chapters.isNotEmpty) {
