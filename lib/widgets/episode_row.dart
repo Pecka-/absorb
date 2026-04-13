@@ -81,10 +81,7 @@ class _EpisodeRowState extends State<EpisodeRow> {
 
     return InkWell(
       onTap: () {
-        // Close episode list before opening detail to prevent infinite stacking
-        final nav = Navigator.of(context);
-        nav.pop();
-        EpisodeDetailSheet.show(nav.context, widget.podcastItem, ep);
+        EpisodeDetailSheet.show(context, widget.podcastItem, ep);
       },
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 10, 12, 10),

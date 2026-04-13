@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 
+const int maxSheetDepth = 3;
+final List<Route<dynamic>> _activeSheetRoutes = [];
+
 /// Shows a modal bottom sheet that supports stacking.
 ///
-/// Drag to minimum size closes ALL stacked sheets (popUntil non-popup route).
-/// Back button / barrier tap closes only the current sheet.
+/// Drag to minimum size closes the current sheet only (revealing any sheet below).
+/// Back button / barrier tap also closes only the current sheet.
+/// Stack is capped at [maxSheetDepth] - opening beyond that evicts the oldest sheet.
 Future<T?> showStackableSheet<T>({
   required BuildContext context,
   required Widget Function(BuildContext, ScrollController) builder,
@@ -15,10 +19,22 @@ Future<T?> showStackableSheet<T>({
   bool showHandle = false,
 }) {
   FocusManager.instance.primaryFocus?.unfocus();
+
+  // Enforce stack cap: evict the oldest sheet before opening a new one
+  if (_activeSheetRoutes.length >= maxSheetDepth) {
+    final oldest = _activeSheetRoutes.first;
+    try {
+      Navigator.of(context).removeRoute(oldest);
+    } catch (_) {
+      // Route may already be disposed (e.g. rapid navigation)
+      _activeSheetRoutes.remove(oldest);
+    }
+  }
+
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
-    enableDrag: false,
+    enableDrag: true,
     useSafeArea: useSafeArea,
     backgroundColor: backgroundColor ?? (showHandle ? null : Colors.transparent),
     builder: (_) => _StackableSheet(
@@ -53,15 +69,23 @@ class _StackableSheet extends StatefulWidget {
 class _StackableSheetState extends State<_StackableSheet> {
   final _controller = DraggableScrollableController();
   bool _dismissed = false;
+  Route<dynamic>? _ownRoute;
 
   @override
   void initState() {
     super.initState();
     _controller.addListener(_onSizeChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ownRoute = ModalRoute.of(context);
+      if (_ownRoute != null) {
+        _activeSheetRoutes.add(_ownRoute!);
+      }
+    });
   }
 
   @override
   void dispose() {
+    if (_ownRoute != null) _activeSheetRoutes.remove(_ownRoute!);
     _controller.removeListener(_onSizeChanged);
     _controller.dispose();
     super.dispose();
@@ -70,7 +94,7 @@ class _StackableSheetState extends State<_StackableSheet> {
   void _onSizeChanged() {
     if (!_dismissed && _controller.size <= widget.minChildSize) {
       _dismissed = true;
-      Navigator.of(context).popUntil((route) => route is! PopupRoute);
+      Navigator.of(context).pop();
     }
   }
 

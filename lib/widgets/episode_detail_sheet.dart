@@ -460,9 +460,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
             const SizedBox(height: 16),
             GestureDetector(
               onTap: () {
-                final nav = Navigator.of(context);
-                nav.pop();
-                EpisodeListSheet.show(nav.context, widget.podcastItem);
+                EpisodeListSheet.show(context, widget.podcastItem);
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

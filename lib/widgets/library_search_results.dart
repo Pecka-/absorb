@@ -13,7 +13,6 @@ class BookResultTile extends StatelessWidget {
   final Map<String, dynamic> item;
   final String? serverUrl;
   final String? token;
-  final bool popOnTap;
   final String? subtitle;
   final String? sequenceBadge;
 
@@ -22,7 +21,6 @@ class BookResultTile extends StatelessWidget {
     required this.item,
     required this.serverUrl,
     required this.token,
-    this.popOnTap = false,
     this.subtitle,
     this.sequenceBadge,
   });
@@ -64,14 +62,11 @@ class BookResultTile extends StatelessWidget {
           onTap: () {
             FocusManager.instance.primaryFocus?.unfocus();
             if (itemId != null) {
-              final nav = Navigator.of(context);
-              if (popOnTap) nav.pop();
-              final ctx = popOnTap ? nav.context : context;
-              final lib = ctx.read<LibraryProvider>();
+              final lib = context.read<LibraryProvider>();
               if (lib.isPodcastLibrary) {
-                EpisodeListSheet.show(ctx, item);
+                EpisodeListSheet.show(context, item);
               } else {
-                showBookDetailSheet(ctx, itemId);
+                showBookDetailSheet(context, itemId);
               }
             }
           },
