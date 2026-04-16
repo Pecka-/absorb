@@ -233,6 +233,16 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> pause() async {
     debugPrint('[Handler] pause() called - routing to service');
+    // Android Auto disconnect can dispatch both a MediaButton click and a
+    // pause() action simultaneously. The click's 400ms debounce timer would
+    // then see playing=false and misinterpret it as "user wants to play",
+    // triggering a cold-start restore. Cancel any pending click so the
+    // platform-initiated pause wins.
+    if (_clickTimer?.isActive ?? false) {
+      debugPrint('[Handler] Cancelling pending click (platform pause)');
+      _clickTimer!.cancel();
+      _clickCount = 0;
+    }
     if (_service != null) {
       await _service!.pause();
     } else {
