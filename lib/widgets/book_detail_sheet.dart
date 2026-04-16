@@ -270,10 +270,30 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
             Theme.of(context).scaffoldBackgroundColor,
           ],
         )))),
-        _isLoading || (_item != null && _coverUrl != null && _coverScheme == null)
-            ? Center(child: CircularProgressIndicator(strokeWidth: 2, color: cs.onSurface.withValues(alpha: 0.24)))
+        // Don't block sheet rendering on cover-scheme palette generation -
+        // on iOS it can stall indefinitely when a download is saturating the
+        // connection pool, leaving the sheet stuck with an undismissable
+        // spinner. Accent colors fall back to the default scheme until the
+        // palette resolves. Loading/failed states are wrapped in a scrollable
+        // so drag-to-dismiss works even before content arrives.
+        _isLoading
+            ? SingleChildScrollView(
+                controller: widget.scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.85,
+                  child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: cs.onSurface.withValues(alpha: 0.24))),
+                ),
+              )
             : _item == null
-                ? Center(child: Text('Failed to load', style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)))
+                ? SingleChildScrollView(
+                    controller: widget.scrollController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.85,
+                      child: Center(child: Text('Failed to load', style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant))),
+                    ),
+                  )
                 : AnimatedOpacity(
                     opacity: 1.0, duration: const Duration(milliseconds: 300),
                     child: _buildContent(context, cs, tt)),
