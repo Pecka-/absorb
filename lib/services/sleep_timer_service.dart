@@ -381,6 +381,7 @@ class SleepTimerService extends ChangeNotifier {
     _chaptersRemaining = 0;
     _targetChapterIndex = -1;
     _warningSent = false;
+    _autoStarted = false;
     // Restore volume if cancelled during fade-out
     if (wasFading) {
       _player.setVolume(_fadeStartVolume);
@@ -464,6 +465,7 @@ class SleepTimerService extends ChangeNotifier {
   bool _autoSleepDismissed = false; // user manually cancelled — don't re-trigger this window
   bool _wasInWindow = false; // tracks window transitions to reset dismiss flag
   Timer? _windowBoundaryTimer; // fires once at exact window start time
+  bool _autoStarted = false; // current timer was started by auto sleep (not manual)
 
   /// Load auto sleep settings.
   Future<void> loadAutoSleepSettings() async {
@@ -481,6 +483,12 @@ class SleepTimerService extends ChangeNotifier {
     // Cancel stale boundary timer — it was for the old window
     _windowBoundaryTimer?.cancel();
     _windowBoundaryTimer = null;
+    // If an auto-started timer is running, tear it down so the new duration /
+    // mode / window can take effect on re-evaluation.
+    if (_autoStarted && isActive) {
+      debugPrint('[SleepTimer] Settings changed — restarting auto-started timer');
+      cancel();
+    }
     // Re-evaluate with new settings if playing, or schedule boundary
     if (_autoSleepSettings != null && _autoSleepSettings!.enabled) {
       checkAutoSleep();
@@ -535,6 +543,7 @@ class SleepTimerService extends ChangeNotifier {
           setTimeSleep(Duration(minutes: settings.durationMinutes));
           onToast?.call('Auto sleep: ${settings.durationMinutes}m timer started');
         }
+        _autoStarted = true;
       }
     } else {
       // Not in window yet — schedule a one-shot timer for when it opens
@@ -566,6 +575,7 @@ class SleepTimerService extends ChangeNotifier {
           setTimeSleep(Duration(minutes: settings.durationMinutes));
           onToast?.call('Auto sleep: ${settings.durationMinutes}m timer started');
         }
+        _autoStarted = true;
       }
     });
   }
