@@ -1318,7 +1318,11 @@ class AudioPlayerService extends ChangeNotifier {
         final rewindSeconds = rewindSettings.maxRewind;
         if (rewindSeconds > 0.5 && _player != null) {
           final currentAbsolutePos = position.inMilliseconds / 1000.0;
-          var newPosSeconds = currentAbsolutePos - rewindSeconds;
+          // Scale by speed so the listener gets the same perceived amount of
+          // re-orientation time regardless of playback speed - at 1.5x a 2s
+          // setting covers 3s of book content (= 2s of real listening time).
+          final currentSpeed = _player!.speed;
+          var newPosSeconds = currentAbsolutePos - (rewindSeconds * currentSpeed);
           if (newPosSeconds < 0) newPosSeconds = 0;
           if (rewindSettings.chapterBarrier && _chapters.isNotEmpty) {
             for (final ch in _chapters) {
@@ -1332,11 +1336,15 @@ class AudioPlayerService extends ChangeNotifier {
           }
           await _seekAbsolute(newPosSeconds);
           // Use actual book-time delta so chapter barrier caps are reflected.
-          _lastAutoRewindAmount = currentAbsolutePos - newPosSeconds;
-          _logEvent(PlaybackEventType.autoRewind,
-              detail: '${rewindSeconds.toStringAsFixed(1)}s (session start)');
+          final actualDelta = currentAbsolutePos - newPosSeconds;
+          _lastAutoRewindAmount = actualDelta;
+          final detail = currentSpeed == 1.0
+              ? '${rewindSeconds.toStringAsFixed(1)}s (session start)'
+              : '${rewindSeconds.toStringAsFixed(1)}s (${actualDelta.toStringAsFixed(1)}s at ${currentSpeed.toStringAsFixed(2)}x, session start)';
+          _logEvent(PlaybackEventType.autoRewind, detail: detail);
           debugPrint(
-              '[Player] Session-start rewind ${rewindSeconds.toStringAsFixed(1)}s');
+              '[Player] Session-start rewind ${rewindSeconds.toStringAsFixed(1)}s '
+              '(${actualDelta.toStringAsFixed(1)}s at ${currentSpeed.toStringAsFixed(2)}x)');
         }
       }
     }
