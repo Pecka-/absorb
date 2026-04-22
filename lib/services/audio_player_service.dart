@@ -1533,6 +1533,11 @@ class AudioPlayerService extends ChangeNotifier {
     bool forceStartTime = false,
   ]) async {
     debugPrint('[Player] Playing from local files: $title');
+    // Alpha [PodDur]: trace podcast-episode duration loading. Symptom:
+    // Android Auto progress bar missing for ~60s on cold-start podcast play
+    // because the first MediaItem push carries dur=0. We want to know what
+    // value arrived at this function, and what's available from nearby state.
+    debugPrint('[PodDur] _playFromLocal entry: itemId=$itemId ep=$_currentEpisodeId totalDurationArg=${totalDuration.toStringAsFixed(1)}s _totalDuration=${_totalDuration.toStringAsFixed(1)}s chapters=${chapters.length}');
     _isOfflineMode = false; // We still sync to server if possible
     _playbackSessionId = null;
 
@@ -1551,6 +1556,16 @@ class AudioPlayerService extends ChangeNotifier {
         if (sessionData != null) {
           _playbackSessionId = sessionData['id'] as String?;
           debugPrint('[Player] Got server session for local playback: $_playbackSessionId');
+
+          // Alpha [PodDur]: which duration fields did the session response carry?
+          // If the server ships a usable duration here and we ignore it, we
+          // know the fix is to pick it up. Dump all plausible keys.
+          final sdDuration = (sessionData['duration'] as num?)?.toDouble();
+          final sdMediaDuration = (sessionData['mediaDuration'] as num?)?.toDouble();
+          final sdMetaDur = (sessionData['mediaMetadata'] is Map<String, dynamic>)
+              ? ((sessionData['mediaMetadata'] as Map<String, dynamic>)['duration'] as num?)?.toDouble()
+              : null;
+          debugPrint('[PodDur] session response: duration=$sdDuration mediaDuration=$sdMediaDuration mediaMetadata.duration=$sdMetaDur keys=${sessionData.keys.toList()}');
 
           // Pick up chapters from session (e.g. podcast episodes with embedded chapters)
           if (chapters.isEmpty) {
@@ -2280,6 +2295,11 @@ class AudioPlayerService extends ChangeNotifier {
 
   void _pushMediaItem(String itemId, String title, String author,
       String? coverUrl, double totalDuration, {String? chapter}) {
+    // Alpha [PodDur]: trace every push-site. We want to see which callers
+    // pass only the parent itemId (missing -episodeId suffix) and/or a zero
+    // duration, so we can pinpoint what to fix for the AA podcast progress
+    // bar. Includes the current _totalDuration so "stale 0" paths are visible.
+    debugPrint('[PodDur] _pushMediaItem: itemId=$itemId ep=$_currentEpisodeId argDur=${totalDuration.toStringAsFixed(1)}s _totalDuration=${_totalDuration.toStringAsFixed(1)}s');
     // Android: Always use content:// URI for Now Playing artwork - some OEMs
     // (e.g. Vivo) don't load HTTP URLs in MediaSession. The CoverContentProvider
     // handles both downloaded and streamed covers.
