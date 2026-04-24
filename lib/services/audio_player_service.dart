@@ -959,6 +959,7 @@ class AudioPlayerService extends ChangeNotifier {
   bool get isOfflineMode => _isOfflineMode;
   double get volume => _player?.volume ?? 1.0;
   Future<void> setVolume(double v) async => _player?.setVolume(v);
+  bool get hasMultipleTracks => _trackStartOffsets.length > 1;
 
   Stream<Duration> get positionStream =>
       _player?.positionStream ?? const Stream.empty();
@@ -3329,6 +3330,19 @@ class AudioPlayerService extends ChangeNotifier {
     debugPrint('[Service] skipForward done — playing=${_player!.playing}');
   }
 
+  Future<void> skipToNextTrack() async {
+    if (_player == null || !hasMultipleTracks) return;
+    _resetStuckDetection();
+    final nextIndex = _currentTrackIndex + 1;
+    final trackCount = _trackStartOffsets.length - 1;
+    if (nextIndex >= trackCount) return;
+    final start = _trackStartOffsets[nextIndex];
+    debugPrint('[Service] skipToNextTrack -> track $nextIndex at ${start}s');
+    await _seekAbsolute(start);
+    _logEvent(PlaybackEventType.seek, detail: 'next file');
+    notifyListeners();
+  }
+
   DateTime? _lastRewindChapterSnap;
 
   Future<void> skipBackward([int seconds = 10]) async {
@@ -3369,6 +3383,31 @@ class AudioPlayerService extends ChangeNotifier {
     var n = targetS < 0 ? 0.0 : targetS;
     await _seekAbsolute(n);
     _logEvent(PlaybackEventType.skipBackward, detail: '-${seconds}s (${adjusted}s @ ${speed}x)');
+  }
+
+  Future<void> skipToPreviousTrack() async {
+    if (_player == null || !hasMultipleTracks) return;
+    _resetStuckDetection();
+    final posS = position.inMilliseconds / 1000.0;
+    final currentStart = _trackStartOffsets[_currentTrackIndex];
+    if (posS - currentStart > 3.0) {
+      debugPrint('[Service] skipToPreviousTrack -> current track start at ${currentStart}s');
+      await _seekAbsolute(currentStart);
+      _logEvent(PlaybackEventType.seek, detail: 'file start');
+      notifyListeners();
+      return;
+    }
+    if (_currentTrackIndex <= 0) {
+      await _seekAbsolute(0);
+      notifyListeners();
+      return;
+    }
+    final prevIndex = _currentTrackIndex - 1;
+    final start = _trackStartOffsets[prevIndex];
+    debugPrint('[Service] skipToPreviousTrack -> track $prevIndex at ${start}s');
+    await _seekAbsolute(start);
+    _logEvent(PlaybackEventType.seek, detail: 'previous file');
+    notifyListeners();
   }
 
   Future<void> skipToNextChapter() async {

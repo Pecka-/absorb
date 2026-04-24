@@ -40,6 +40,13 @@ class _CardPlaybackControlsState extends State<CardPlaybackControls> {
 
   Widget _skipIcon(int seconds, bool isForward, {bool active = true}) {
     final cs = Theme.of(context).colorScheme;
+    if (active && widget.player.hasMultipleTracks) {
+      return Icon(
+        isForward ? Icons.skip_next_rounded : Icons.skip_previous_rounded,
+        size: 42,
+        color: cs.onSurface.withValues(alpha: 0.7),
+      );
+    }
     final hasBuiltIn = [5, 10, 30].contains(seconds);
     if (hasBuiltIn) {
       IconData icon;
@@ -140,14 +147,22 @@ class _CardPlaybackControlsState extends State<CardPlaybackControls> {
           )),
         )),
         Flexible(child: Pressable(
-          onTap: widget.isActive ? () => widget.player.skipBackward(_backSkip) : null,
+          onTap: widget.isActive
+              ? (widget.player.hasMultipleTracks
+                  ? widget.player.skipToPreviousTrack
+                  : () => widget.player.skipBackward(_backSkip))
+              : null,
           child: SizedBox(width: 60, height: 60, child: Center(child: _skipIcon(_backSkip, false, active: widget.isActive))),
         )),
         if (widget.showPlayButton)
           Flexible(child: _playPauseButton(cs, playing: widget.isActive && widget.player.isPlaying, loading: loading,
             onTap: widget.isActive ? widget.player.togglePlayPause : widget.onStart)),
         Flexible(child: Pressable(
-          onTap: widget.isActive ? () => widget.player.skipForward(_forwardSkip) : null,
+          onTap: widget.isActive
+              ? (widget.player.hasMultipleTracks
+                  ? widget.player.skipToNextTrack
+                  : () => widget.player.skipForward(_forwardSkip))
+              : null,
           child: SizedBox(width: 60, height: 60, child: Center(child: _skipIcon(_forwardSkip, true, active: widget.isActive))),
         )),
         Flexible(child: Pressable(

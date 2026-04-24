@@ -439,12 +439,20 @@ class _CarModeScreenState extends State<CarModeScreen>
                           color: player.hasBook ? Colors.white70 : Colors.white24))),
                     )),
                     Flexible(child: GestureDetector(
-                      onTap: player.hasBook ? () => player.skipBackward(_backSkip) : null,
+                      onTap: player.hasBook
+                          ? (player.hasMultipleTracks
+                              ? player.skipToPreviousTrack
+                              : () => player.skipBackward(_backSkip))
+                          : null,
                       child: SizedBox(width: skipSize, height: skipSize,
                         child: Center(child: _buildSkipIcon(_backSkip, false, player.hasBook, skipIconSize))),
                     )),
                     Flexible(child: GestureDetector(
-                      onTap: player.hasBook ? () => player.skipForward(_forwardSkip) : null,
+                      onTap: player.hasBook
+                          ? (player.hasMultipleTracks
+                              ? player.skipToNextTrack
+                              : () => player.skipForward(_forwardSkip))
+                          : null,
                       child: SizedBox(width: skipSize, height: skipSize,
                         child: Center(child: _buildSkipIcon(_forwardSkip, true, player.hasBook, skipIconSize))),
                     )),
@@ -518,6 +526,14 @@ class _CarModeScreenState extends State<CarModeScreen>
   }
 
   Widget _buildSkipIcon(int seconds, bool isForward, bool active, [double iconSize = 52]) {
+    final player = AudioPlayerService();
+    if (active && player.hasMultipleTracks) {
+      return Icon(
+        isForward ? Icons.skip_next_rounded : Icons.skip_previous_rounded,
+        size: iconSize,
+        color: Colors.white70,
+      );
+    }
     final hasBuiltIn = [5, 10, 30].contains(seconds);
     final color = active ? Colors.white70 : Colors.white24;
     if (hasBuiltIn) {
