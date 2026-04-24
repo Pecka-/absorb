@@ -26,7 +26,8 @@ import '../main.dart' show rootNavigatorKey;
 //   author:<authorId>@<libId>    → books by that author
 //
 // Podcast library drilldown:
-//   lib:<libraryId>              → list of podcast shows
+//   lib:<libraryId>              → podcast library browse nodes
+//   lib:<libraryId>:new-episodes → newest podcast episodes
 //   show:<showId>@<libId>        → episodes of a show
 //
 // Playable items:
@@ -54,6 +55,7 @@ class AutoMediaIds {
   static String libBooks(String libraryId) => '$libPrefix$libraryId:books';
   static String libSeries(String libraryId) => '$libPrefix$libraryId:series';
   static String libAuthors(String libraryId) => '$libPrefix$libraryId:authors';
+  static String libNewEpisodes(String libraryId) => '$libPrefix$libraryId:new-episodes';
   static String seriesId(String sId, String libId) => '$seriesPrefix$sId@$libId';
   static String authorId(String aId, String libId) => '$authorPrefix$aId@$libId';
   static String showId(String sId, String libId) => '$showPrefix$sId@$libId';
@@ -537,6 +539,24 @@ class AndroidAutoService {
     ];
   }
 
+  List<MediaItem> _getPodcastSubCategories(String libraryId) {
+    final l = _l();
+    return [
+      MediaItem(
+        id: AutoMediaIds.libNewEpisodes(libraryId),
+        title: l?.newEpisodes ?? 'New Episodes',
+        playable: false,
+      ),
+    ];
+  }
+
+  Future<List<MediaItem>> _getPodcastLibraryChildren(String libraryId) async {
+    final children = <MediaItem>[];
+    children.addAll(_getPodcastSubCategories(libraryId));
+    children.addAll(await _fetchPodcastShows(libraryId));
+    return children;
+  }
+
   /// Main entry point for browse tree. May make API calls for drilldowns.
   Future<List<MediaItem>> getChildrenOf(String parentMediaId) async {
     // Ensure downloads are always populated before returning root.
@@ -588,7 +608,7 @@ class AndroidAutoService {
       // If only one library, skip picker → go straight to its contents
       if (_libraries.length == 1) {
         final lib = _libraries.first;
-        if (lib.isPodcast) return _fetchPodcastShows(lib.id);
+        if (lib.isPodcast) return _getPodcastLibraryChildren(lib.id);
         return _getBookSubCategories(lib.id);
       }
       return _libraries.map((lib) {
@@ -613,14 +633,15 @@ class AndroidAutoService {
           orElse: () => null,
         );
         if (lib != null && lib.isPodcast) {
-          // Podcast library → list shows directly
-          return _fetchPodcastShows(libId);
+          return _getPodcastLibraryChildren(libId);
         }
         // Book library → sub-categories
         return _getBookSubCategories(libId);
       }
 
       switch (sub) {
+        case 'new-episodes':
+          return _fetchNewestEpisodes(libId);
         case 'books':
           return _fetchLibraryBooks(libId);
         case 'series':
@@ -853,6 +874,38 @@ class AndroidAutoService {
       return allShows;
     } catch (e) {
       debugPrint('[AndroidAuto] Error fetching podcast shows: $e');
+    }
+    return [];
+  }
+
+  Future<List<MediaItem>> _fetchNewestEpisodes(String libraryId) async {
+    final api = await getApi();
+    if (api == null) return [];
+
+    try {
+      final sections = await api.getPersonalizedView(
+        libraryId,
+        shelves: const ['episodes-recently-added'],
+        limit: 25,
+      );
+      final newest = sections.cast<Map<String, dynamic>?>().firstWhere(
+        (section) => section?['id'] == 'episodes-recently-added',
+        orElse: () => null,
+      );
+      if (newest == null) return [];
+
+      final entities = newest['entities'] as List<dynamic>? ?? [];
+      final items = entities
+          .whereType<Map<String, dynamic>>()
+          .map((entity) => _entityToEntry(entity, api))
+          .whereType<AutoBookEntry>()
+          .map((entry) => entry.toMediaItem())
+          .toList();
+
+      debugPrint('[AndroidAuto] Fetched ${items.length} newest episodes');
+      return items;
+    } catch (e) {
+      debugPrint('[AndroidAuto] Error fetching newest episodes: $e');
     }
     return [];
   }
